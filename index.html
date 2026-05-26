@@ -1,0 +1,723 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>DEV DASHBOARD</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link href="https://fonts.googleapis.com/css2?family=Share+Tech+Mono&display=swap" rel="stylesheet">
+  <style>
+    :root {
+      --bg:     #0a0700;
+      --panel:  #100c00;
+      --border: #8a5500;
+      --dim:    #e0aa38;
+      --text:   #f5aa30;
+      --bright: #ffd455;
+      --green:  #6ed464;
+      --red:    #f05858;
+      --yellow: #f8c838;
+      --blue:   #7eb8ff;
+    }
+
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    body {
+      background: var(--bg);
+      color: var(--text);
+      font-family: 'Share Tech Mono', monospace;
+      font-size: 19px;
+      min-height: 100vh;
+      padding-bottom: 30px;
+    }
+
+    body::after {
+      content: "";
+      position: fixed;
+      inset: 0;
+      background: repeating-linear-gradient(
+        0deg,
+        transparent, transparent 2px,
+        rgba(0,0,0,0.07) 2px, rgba(0,0,0,0.07) 4px
+      );
+      pointer-events: none;
+      z-index: 9999;
+    }
+
+    /* ── HEADER ── */
+    header {
+      display: flex;
+      align-items: center;
+      gap: 14px;
+      padding: 7px 14px;
+      border-bottom: 1px solid var(--border);
+      background: var(--panel);
+    }
+
+    #logo {
+      color: var(--bright);
+      font-size: 17px;
+      letter-spacing: 3px;
+      flex-shrink: 0;
+    }
+
+    #poll-status {
+      color: var(--dim);
+      font-size: 17px;
+      flex-shrink: 0;
+    }
+
+    #header-clock {
+      margin-left: auto;
+      color: var(--bright);
+      font-size: 16px;
+      flex-shrink: 0;
+    }
+
+    #refresh-btn {
+      background: none;
+      border: 1px solid var(--border);
+      color: var(--text);
+      font-family: inherit;
+      font-size: 17px;
+      padding: 3px 10px;
+      cursor: pointer;
+      flex-shrink: 0;
+      letter-spacing: 1px;
+    }
+    #refresh-btn:hover { border-color: var(--bright); color: var(--bright); }
+
+    /* ── STATS ROW ── */
+    #stats-row {
+      display: grid;
+      grid-template-columns: repeat(4, 1fr);
+      border-bottom: 1px solid var(--border);
+    }
+
+    .stat-card {
+      padding: 9px 16px;
+      border-right: 1px solid var(--border);
+      display: flex;
+      align-items: baseline;
+      gap: 10px;
+    }
+    .stat-card:last-child { border-right: none; }
+
+    .stat-label {
+      color: var(--dim);
+      font-size: 16px;
+      text-transform: uppercase;
+      letter-spacing: 1px;
+    }
+
+    .stat-value {
+      color: var(--bright);
+      font-size: 25px;
+      line-height: 1;
+    }
+    .stat-value.bad    { color: var(--red); }
+    .stat-value.warn   { color: var(--yellow); }
+    .stat-value.good   { color: var(--green); }
+
+    /* ── MAIN GRID ── */
+    main {
+      display: grid;
+      grid-template-columns: 1fr 270px;
+      grid-template-rows: auto auto auto;
+    }
+
+    section, aside {
+      border-right: 1px solid var(--border);
+      border-bottom: 1px solid var(--border);
+    }
+
+    .section-title {
+      padding: 5px 14px;
+      background: var(--panel);
+      border-bottom: 1px solid var(--border);
+      color: var(--bright);
+      font-size: 16px;
+      letter-spacing: 2px;
+    }
+
+    /* ── PR LIST ── */
+    #my-prs    { grid-column: 1; grid-row: 1; }
+    #jira-kanban { grid-column: 1; grid-row: 2; }
+    #activity-feed { grid-column: 2; grid-row: 1 / 3; border-right: none; }
+    #reviewer-prs  { grid-column: 1 / 3; grid-row: 3; border-right: none; }
+
+    .pr-list { min-height: 36px; }
+
+    .pr-item { border-bottom: 1px solid rgba(74,45,0,0.35); }
+    .pr-item:last-child { border-bottom: none; }
+    .pr-item:hover .pr-row,
+    .pr-item:hover .pr-detail { background: rgba(212,135,10,0.05); }
+
+    .pr-row {
+      display: flex;
+      align-items: center;
+      gap: 9px;
+      padding: 5px 14px 2px;
+    }
+
+    .pr-detail {
+      display: flex;
+      align-items: center;
+      gap: 14px;
+      padding: 0 14px 5px 52px;
+      font-size: 17px;
+      color: var(--dim);
+    }
+
+    .pr-id   { color: var(--dim); min-width: 38px; font-size: 19px; }
+    .pr-repo {
+      color: var(--dim);
+      font-size: 17px;
+      min-width: 110px;
+      max-width: 110px;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+    .pr-author {
+      color: var(--dim);
+      font-size: 17px;
+      min-width: 90px;
+      max-width: 90px;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+    .pr-title {
+      flex: 1;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+    .pr-title a { color: var(--text); text-decoration: none; }
+    .pr-title a:hover { color: var(--bright); }
+    .pr-meta { color: var(--dim); font-size: 17px; white-space: nowrap; }
+
+    .badge {
+      display: inline-block;
+      padding: 1px 5px;
+      font-size: 16px;
+      border: 1px solid;
+      white-space: nowrap;
+      letter-spacing: 0.5px;
+    }
+    .b-succ { color: var(--green);  border-color: var(--green); }
+    .b-fail { color: var(--red);    border-color: var(--red); }
+    .b-prog { color: var(--yellow); border-color: var(--yellow); animation: blink 1.2s step-start infinite; }
+    .b-none { color: var(--dim);    border-color: var(--border); }
+    .b-qpass { color: var(--green);  border-color: var(--green); }
+    .b-qfail { color: var(--red);    border-color: var(--red); }
+    .b-qwarn { color: var(--yellow); border-color: var(--yellow); }
+    .b-qna   { color: var(--dim);    border-color: var(--border); }
+
+    @keyframes blink { 0%,100%{opacity:1} 50%{opacity:0.25} }
+
+    .empty-msg { padding: 12px 14px; color: var(--dim); font-size: 17px; }
+
+    /* ── JIRA KANBAN ── */
+    #kanban-cols {
+      display: grid;
+      grid-template-columns: repeat(5, 1fr);
+    }
+
+    .kanban-col { border-right: 1px solid var(--border); }
+    .kanban-col:last-child { border-right: none; }
+
+    .col-header {
+      padding: 4px 10px;
+      background: var(--panel);
+      border-bottom: 1px solid var(--border);
+      font-size: 16px;
+      letter-spacing: 1px;
+      color: var(--dim);
+      display: flex;
+      justify-content: space-between;
+    }
+    .col-count { color: var(--bright); }
+    .review-hdr { color: var(--bright); border-bottom-color: var(--bright); }
+
+    .jira-card {
+      padding: 6px 10px;
+      border-bottom: 1px solid rgba(74,45,0,0.3);
+    }
+    .jira-card:hover { background: rgba(212,135,10,0.04); }
+
+    .card-key     { color: var(--bright); font-size: 17px; }
+    .card-summary {
+      color: var(--text);
+      font-size: 19px;
+      margin: 2px 0 3px;
+      overflow: hidden;
+      display: -webkit-box;
+      -webkit-line-clamp: 2;
+      -webkit-box-orient: vertical;
+      line-height: 1.35;
+    }
+    .card-meta { display: flex; gap: 6px; align-items: center; }
+
+    .type-badge {
+      font-size: 16px;
+      padding: 0 4px;
+      border: 1px solid;
+    }
+    .t-story { color: var(--blue); border-color: var(--blue); }
+    .t-bug   { color: var(--red);  border-color: var(--red); }
+    .t-task  { color: var(--dim);  border-color: var(--border); }
+    .t-other { color: var(--dim);  border-color: var(--border); }
+
+    .prio      { font-size: 16px; }
+    .p-high    { color: var(--red); }
+    .p-medium  { color: var(--yellow); }
+    .p-low     { color: var(--dim); }
+
+    /* ── ACTIVITY FEED ── */
+    .feed-block { padding: 10px 12px; border-bottom: 1px solid var(--border); }
+    .feed-block h3 {
+      font-size: 16px;
+      letter-spacing: 1.5px;
+      color: var(--dim);
+      margin-bottom: 7px;
+    }
+
+    .kv-row {
+      display: flex;
+      justify-content: space-between;
+      padding: 2px 0;
+      font-size: 19px;
+    }
+    .kv-row .k { color: var(--dim); }
+    .kv-row .v { color: var(--bright); }
+
+    .ds-row { padding: 2px 0; font-size: 17px; color: var(--dim); }
+    .ds-row span { color: var(--text); }
+
+    /* ── STATUSBAR ── */
+    #statusbar {
+      position: fixed;
+      bottom: 0; left: 0; right: 0;
+      height: 26px;
+      background: var(--panel);
+      border-top: 1px solid var(--border);
+      display: flex;
+      align-items: center;
+      font-size: 17px;
+      color: var(--dim);
+      z-index: 100;
+    }
+
+    .sb {
+      padding: 0 13px;
+      border-right: 1px solid var(--border);
+      height: 100%;
+      display: flex;
+      align-items: center;
+      gap: 5px;
+      flex-shrink: 0;
+    }
+    .sb:last-child { margin-left: auto; border-right: none; border-left: 1px solid var(--border); }
+    .sb span { color: var(--text); }
+  </style>
+</head>
+<body>
+
+  <header>
+    <div id="logo">◆ DEV-DASHBOARD</div>
+    <div id="poll-status">–</div>
+    <div id="header-clock"></div>
+    <button id="refresh-btn" onclick="loadData()">⟳ REFRESH</button>
+  </header>
+
+  <div id="stats-row">
+    <div class="stat-card">
+      <div class="stat-label">My PRs</div>
+      <div class="stat-value" id="s-my">–</div>
+    </div>
+    <div class="stat-card">
+      <div class="stat-label">For Review</div>
+      <div class="stat-value" id="s-rev">–</div>
+    </div>
+    <div class="stat-card">
+      <div class="stat-label">Jira Active</div>
+      <div class="stat-value" id="s-jira">–</div>
+    </div>
+    <div class="stat-card">
+      <div class="stat-label">Builds Failing</div>
+      <div class="stat-value" id="s-fail">–</div>
+    </div>
+  </div>
+
+  <main>
+    <section id="my-prs">
+      <div class="section-title">── MY PULL REQUESTS</div>
+      <div id="my-prs-list" class="pr-list"></div>
+    </section>
+
+    <section id="jira-kanban">
+      <div class="section-title">── JIRA KANBAN</div>
+      <div id="kanban-cols">
+        <div class="kanban-col">
+          <div class="col-header">OPEN <span class="col-count" id="cnt-open">0</span></div>
+          <div id="cards-open"></div>
+        </div>
+        <div class="kanban-col">
+          <div class="col-header">IMPLEMENT <span class="col-count" id="cnt-implement">0</span></div>
+          <div id="cards-implement"></div>
+        </div>
+        <div class="kanban-col">
+          <div class="col-header">QA <span class="col-count" id="cnt-qa">0</span></div>
+          <div id="cards-qa"></div>
+        </div>
+        <div class="kanban-col">
+          <div class="col-header">BV <span class="col-count" id="cnt-bv">0</span></div>
+          <div id="cards-bv"></div>
+        </div>
+        <div class="kanban-col">
+          <div class="col-header">RESOLVED <span class="col-count" id="cnt-resolved">0</span></div>
+          <div id="cards-resolved"></div>
+        </div>
+      </div>
+    </section>
+
+    <aside id="activity-feed">
+      <div class="section-title">── ACTIVITY FEED</div>
+
+      <div class="feed-block">
+        <h3>▸ JIRA QUICK STATS</h3>
+        <div id="jira-stats"></div>
+      </div>
+
+      <div class="feed-block">
+        <h3>▸ MY BUILD STATUS</h3>
+        <div id="build-summary"></div>
+      </div>
+
+    </aside>
+
+    <section id="reviewer-prs">
+      <div class="section-title">── PRs FOR MY REVIEW</div>
+      <div id="reviewer-prs-list" class="pr-list"></div>
+    </section>
+  </main>
+
+  <div id="statusbar">
+    <div class="sb">SESSION <span id="sb-session">–</span></div>
+    <div class="sb">LAST POLL <span id="sb-lastpoll">–</span></div>
+    <div class="sb">NEXT <span id="sb-next">–</span></div>
+    <div class="sb">DATA AGE <span id="sb-age">–</span></div>
+    <div class="sb"><span id="sb-clock"></span></div>
+  </div>
+
+  <script>
+  let STASH = ''; // populated from bitbucket.json stash_url field
+  let JIRA  = ''; // populated from jira.json jira_url field
+  const SESSION_START = Date.now();
+
+  let bbData   = null;
+  let jiraData = null;
+  let nextAt   = null;
+  let refreshTimer = null;
+
+  // ── Utilities ──────────────────────────────────────────────────────────
+
+  function esc(s) {
+    return String(s ?? '')
+      .replace(/&/g,'&amp;').replace(/</g,'&lt;')
+      .replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+  }
+
+  function dur(ms) {
+    const s = Math.floor(ms / 1000);
+    const h = String(Math.floor(s / 3600)).padStart(2,'0');
+    const m = String(Math.floor((s % 3600) / 60)).padStart(2,'0');
+    const ss = String(s % 60).padStart(2,'0');
+    return `${h}:${m}:${ss}`;
+  }
+
+  function ago(isoStr) {
+    if (!isoStr) return '–';
+    const s = Math.floor((Date.now() - new Date(isoStr)) / 1000);
+    if (s < 60)   return s + 's ago';
+    if (s < 3600) return Math.floor(s / 60) + 'm ago';
+    return Math.floor(s / 3600) + 'h ago';
+  }
+
+  function fmtTime(isoStr) {
+    if (!isoStr) return '–';
+    return new Date(isoStr).toLocaleTimeString('da-DK', {hour:'2-digit', minute:'2-digit'});
+  }
+
+  function isWorkHours() {
+    const d = new Date(), day = d.getDay(), h = d.getHours();
+    return day >= 1 && day <= 5 && h >= 8 && h < 18;
+  }
+
+  // ── Badges ─────────────────────────────────────────────────────────────
+
+  function buildBadge(state, name, url) {
+    const tip = name && name !== 'Unknown' ? ` title="${esc(name)}"` : '';
+    let text, cls;
+    switch (state) {
+      case 'SUCCESSFUL': text = 'SUCCESSFUL'; cls = 'b-succ'; break;
+      case 'FAILED':     text = 'FAILED';     cls = 'b-fail'; break;
+      case 'INPROGRESS': text = 'BUILDING';   cls = 'b-prog'; break;
+      default:           text = 'NO BUILD';   cls = 'b-none'; break;
+    }
+    const badge = `<span class="badge ${cls}"${tip}>${text}</span>`;
+    return url ? `<a href="${esc(url)}" target="_blank" rel="noopener" style="text-decoration:none">${badge}</a>` : badge;
+  }
+
+  function qgBadge(label) {
+    switch (label) {
+      case 'PASS': return '<span class="badge b-qpass">QG PASSED</span>';
+      case 'FAIL': return '<span class="badge b-qfail">QG FAILED</span>';
+      case 'WARN': return '<span class="badge b-qwarn">QG WARNING</span>';
+      default:     return '<span class="badge b-qna">QG UNKNOWN</span>';
+    }
+  }
+
+  // ── Render helpers ──────────────────────────────────────────────────────
+
+  function prRow(pr, showAuthor) {
+    const url = (pr.project && pr.slug)
+      ? `${STASH}/projects/${esc(pr.project)}/repos/${esc(pr.slug)}/pull-requests/${pr.id}`
+      : null;
+    const titleHtml = url
+      ? `<a href="${url}" target="_blank" rel="noopener">${esc(pr.title)}</a>`
+      : esc(pr.title);
+
+    const total = pr.reviewer_count ?? 0;
+    const nappr = pr.approvals ?? 0;
+    let apprText, apprColor;
+    if (total === 0)   { apprText = 'No reviewers'; apprColor = 'var(--dim)'; }
+    else if (nappr > 0){ apprText = 'Approved';     apprColor = 'var(--green)'; }
+    else               { apprText = 'Unapproved';   apprColor = 'var(--red)'; }
+    const appr = `<span style="color:${apprColor}">${apprText}</span>`;
+    const tasks = pr.tasks > 0
+      ? `<span style="color:var(--yellow)">T:${pr.tasks}</span>`
+      : `<span style="color:var(--dim)">T:0</span>`;
+
+    const conflict = pr.merge_outcome === 'CONFLICTED'
+      ? `<span class="badge b-fail">CONFLICT</span>`
+      : '';
+
+    const authorCol = showAuthor
+      ? `<span class="pr-author" title="${esc(pr.author)}">${esc(pr.author ?? '')}</span>`
+      : '';
+
+    // detail sub-row
+    const commitShort = (pr.commit ?? '').slice(0, 7) || '–';
+    const bugs     = pr.bugs     ?? 0;
+    const smells   = pr.smells   ?? 0;
+    const vulns    = pr.vulns    ?? 0;
+    const hotspots = pr.hotspots ?? 0;
+    const comments = pr.comments ?? 0;
+    const bc = bugs     > 0 ? 'var(--red)'    : 'var(--dim)';
+    const sc = smells   > 0 ? 'var(--yellow)' : 'var(--dim)';
+    const vc = vulns    > 0 ? 'var(--red)'    : 'var(--dim)';
+    const hc = hotspots > 0 ? 'var(--yellow)' : 'var(--dim)';
+    const cc = comments > 0 ? 'var(--text)'   : 'var(--dim)';
+
+    return `
+      <div class="pr-item">
+        <div class="pr-row">
+          <span class="pr-id">#${pr.id}</span>
+          <span class="pr-repo" title="${esc(pr.repo)}">${esc(pr.repo)}</span>
+          ${authorCol}
+          <span class="pr-title">${titleHtml}</span>
+          <span class="pr-meta">${appr} ${tasks}</span>
+          ${buildBadge(pr.build_state, pr.build_name, pr.build_url)}
+          ${qgBadge(pr.qg_label)}
+          ${conflict}
+        </div>
+        <div class="pr-detail">
+          <span style="color:var(--blue)">${commitShort}</span>
+          <span style="color:${bc}">bugs:${bugs}</span>
+          <span style="color:${sc}">smells:${smells}</span>
+          <span style="color:${vc}">vulns:${vulns}</span>
+          <span style="color:${hc}">hotspots:${hotspots}</span>
+          <span style="color:${cc}">${comments} cmt</span>
+        </div>
+      </div>`;
+  }
+
+  function typeClass(t) {
+    return {Story:'t-story', Bug:'t-bug', Task:'t-task'}[t] ?? 't-other';
+  }
+
+  // Handle both named ("High") and numeric ("2") Jira priorities
+  function _prioLevel(p) {
+    const n = parseInt(p);
+    if (!isNaN(n)) return n;
+    return {Critical:1, Highest:1, High:2, Medium:3, Low:4, Lowest:5}[p] ?? 3;
+  }
+  function prioClass(p) {
+    const n = _prioLevel(p);
+    if (n <= 2) return 'p-high';
+    if (n === 3) return 'p-medium';
+    return 'p-low';
+  }
+  function prioSymbol(p) {
+    const n = _prioLevel(p);
+    if (n <= 2) return '▲';
+    if (n === 3) return '─';
+    return '▼';
+  }
+  function prioName(p) {
+    const n = parseInt(p);
+    if (!isNaN(n)) return ['', 'Critical', 'High', 'Medium', 'Low', 'Lowest'][n] ?? p;
+    return p;
+  }
+
+  function jiraCard(issue) {
+    const url = JIRA ? `${JIRA}/browse/${esc(issue.key)}` : null;
+    const keyHtml = url
+      ? `<a href="${url}" target="_blank" rel="noopener" style="color:var(--bright);text-decoration:none">${esc(issue.key)}</a>`
+      : esc(issue.key);
+    return `
+      <div class="jira-card">
+        <div class="card-key">${keyHtml}</div>
+        <div class="card-summary">${esc(issue.summary)}</div>
+        <div class="card-meta">
+          <span class="type-badge ${typeClass(issue.type)}">${esc(issue.type ?? '?')}</span>
+        </div>
+      </div>`;
+  }
+
+  // ── Render ──────────────────────────────────────────────────────────────
+
+  function renderAll(bb, jira) {
+    const myPRs  = bb.my_prs ?? [];
+    const revPRs = bb.reviewer_prs ?? [];
+    const issues = jira.issues ?? [];
+    const active = issues.filter(i => i.status !== 'RESOLVED');
+    const failing = myPRs.filter(p => p.build_state === 'FAILED').length;
+
+    // Stats
+    document.getElementById('s-my').textContent   = myPRs.length;
+    document.getElementById('s-rev').textContent  = revPRs.length;
+    document.getElementById('s-jira').textContent = active.length;
+
+    const failEl = document.getElementById('s-fail');
+    failEl.textContent = failing;
+    failEl.className = 'stat-value' + (failing > 0 ? ' bad' : '');
+
+    // My PRs
+    document.getElementById('my-prs-list').innerHTML = myPRs.length
+      ? myPRs.map(p => prRow(p, false)).join('')
+      : '<div class="empty-msg">no open PRs</div>';
+
+    // Reviewer PRs
+    document.getElementById('reviewer-prs-list').innerHTML = revPRs.length
+      ? revPRs.map(p => prRow(p, true)).join('')
+      : '<div class="empty-msg">no PRs awaiting review</div>';
+
+    // Kanban columns
+    const cols = {
+      open:      issues.filter(i => i.status === 'OPEN' || i.status === 'REOPENED'),
+      implement: issues.filter(i => i.status === 'IMPLEMENT'),
+      qa:        issues.filter(i => i.status === 'QUALITY ASSURANCE'),
+      bv:        issues.filter(i => i.status === 'BUSINESS VALIDATION'),
+      resolved:  issues.filter(i => i.status === 'RESOLVED'),
+    };
+    for (const [key, cards] of Object.entries(cols)) {
+      document.getElementById(`cnt-${key}`).textContent = cards.length;
+      document.getElementById(`cards-${key}`).innerHTML = cards.length
+        ? cards.map(jiraCard).join('')
+        : '<div style="padding:8px 10px;color:var(--dim);font-size:14px">–</div>';
+    }
+
+    // Jira quick stats (by type)
+    const byType = {};
+    issues.forEach(i => { byType[i.type ?? 'Other'] = (byType[i.type ?? 'Other'] || 0) + 1; });
+    let statsHtml = Object.entries(byType)
+      .map(([k,v]) => `<div class="kv-row"><span class="k">${esc(k)}</span><span class="v">${v}</span></div>`)
+      .join('');
+    statsHtml += `<div class="kv-row" style="margin-top:4px;border-top:1px solid var(--border);padding-top:4px">
+      <span class="k">TOTAL</span><span class="v">${issues.length}</span></div>`;
+    document.getElementById('jira-stats').innerHTML = statsHtml;
+
+    // Build summary
+    const succ = myPRs.filter(p => p.build_state === 'SUCCESSFUL').length;
+    const prog = myPRs.filter(p => p.build_state === 'INPROGRESS').length;
+    const none = myPRs.filter(p => p.build_state === 'NO_BUILD').length;
+    document.getElementById('build-summary').innerHTML = `
+      <div class="kv-row"><span class="k">SUCC</span><span class="v" style="color:var(--green)">${succ}</span></div>
+      <div class="kv-row"><span class="k">FAIL</span><span class="v" style="${failing>0?'color:var(--red)':''}">${failing}</span></div>
+      <div class="kv-row"><span class="k">PROG</span><span class="v" style="${prog>0?'color:var(--yellow)':''}">${prog}</span></div>
+      <div class="kv-row"><span class="k">NONE</span><span class="v" style="color:var(--dim)">${none}</span></div>`;
+
+
+    // Header poll status
+    document.getElementById('poll-status').textContent = `↺ ${fmtTime(bb.updated)}`;
+    document.getElementById('sb-lastpoll').textContent = fmtTime(bb.updated);
+  }
+
+  // ── Data loading ────────────────────────────────────────────────────────
+
+  async function loadData() {
+    document.getElementById('poll-status').textContent = '↺ fetching…';
+    try {
+      const t = Date.now();
+      const [bb, jira] = await Promise.all([
+        fetch(`data/bitbucket.json`, {cache:'no-store'}).then(r => { if (!r.ok) throw r; return r.json(); }),
+        fetch(`data/jira.json`,      {cache:'no-store'}).then(r => { if (!r.ok) throw r; return r.json(); }),
+      ]);
+      bbData = bb;
+      jiraData = jira;
+      if (bb.stash_url)   STASH = bb.stash_url;
+      if (jira.jira_url)  JIRA  = jira.jira_url;
+      renderAll(bb, jira);
+    } catch {
+      document.getElementById('poll-status').textContent = '⚠ no data – run ./poll.sh';
+      ['my-prs-list','reviewer-prs-list'].forEach(id => {
+        document.getElementById(id).innerHTML = '<div class="empty-msg">⚠ run ./poll.sh to populate data/</div>';
+      });
+    }
+    scheduleRefresh();
+  }
+
+  function scheduleRefresh() {
+    if (refreshTimer) clearTimeout(refreshTimer);
+    if (isWorkHours()) {
+      nextAt = Date.now() + 60_000;
+      refreshTimer = setTimeout(loadData, 60_000);
+    } else {
+      nextAt = null;
+    }
+  }
+
+  // ── Clock / tick ────────────────────────────────────────────────────────
+
+  function tick() {
+    const now   = new Date();
+    const time  = now.toLocaleTimeString('da-DK');
+    const date  = now.toLocaleDateString('da-DK', {weekday:'short', day:'2-digit', month:'2-digit'});
+    document.getElementById('header-clock').textContent = `${date}  ${time}`;
+    document.getElementById('sb-clock').textContent = time;
+    document.getElementById('sb-session').textContent = dur(Date.now() - SESSION_START);
+
+    if (!isWorkHours()) {
+      document.getElementById('sb-next').textContent = 'outside hours';
+      document.getElementById('sb-next').style.color = 'var(--dim)';
+    } else if (nextAt) {
+      const secs = Math.max(0, Math.ceil((nextAt - Date.now()) / 1000));
+      document.getElementById('sb-next').textContent = secs + 's';
+      document.getElementById('sb-next').style.color = '';
+    }
+
+    if (bbData?.updated) {
+      document.getElementById('sb-age').textContent = ago(bbData.updated);
+    }
+  }
+
+  setInterval(tick, 1000);
+  tick();
+  loadData();
+  </script>
+</body>
+</html>

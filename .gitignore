@@ -1,0 +1,12 @@
+# credentials & secrets
+secrets/
+
+# generated data
+data/
+
+# claude context
+.claude/
+
+# personal context / stale reference scripts with hardcoded values
+DASHBOARD_BRIEF.md
+check_builds.sh
