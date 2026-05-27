@@ -360,7 +360,7 @@ def render_pr_row(win, y: int, pr: dict, show_author: bool, max_x: int, stash_ur
 def render_prs_section(win, title: str, prs: list, show_author: bool, stash_url: str = ""):
     max_y, max_x = win.getmaxyx()
     win.erase()
-    safe_addstr(win, 0, 1, f"── {title}", ca(C_BRIGHT, bold=True))
+    safe_addstr(win, 0, 1, title, ca(C_BRIGHT, bold=True))
     hline(win, 1, 0, max_x)
 
     if not prs:
@@ -379,7 +379,7 @@ def render_prs_section(win, title: str, prs: list, show_author: bool, stash_url:
 def render_kanban(win, bb: dict | None, jira: dict | None):
     max_y, max_x = win.getmaxyx()
     win.erase()
-    safe_addstr(win, 0, 1, "── JIRA KANBAN", ca(C_BRIGHT, bold=True))
+    safe_addstr(win, 0, 1, "JIRA KANBAN", ca(C_BRIGHT, bold=True))
     hline(win, 1, 0, max_x)
 
     issues = (jira.get("issues", []) if jira else []) or []
