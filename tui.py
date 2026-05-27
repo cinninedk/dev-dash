@@ -8,6 +8,7 @@ Quit: q or Ctrl-C.
 
 import curses
 import json
+import subprocess
 import sys
 import time
 import threading
@@ -119,6 +120,27 @@ class DashData:
             return self.bb, self.jira, self.missing_files, self.last_load
 
 
+# ── Clickable URL registry ─────────────────────────────────────────────────────
+# Each entry: (screen_y, x_start, x_end, url). Rebuilt every render cycle.
+_url_map: list[tuple[int, int, int, str]] = []
+
+def clear_url_map():
+    global _url_map
+    _url_map = []
+
+def register_link(win, y: int, x: int, text_len: int, url: str):
+    if not url or text_len <= 0:
+        return
+    beg_y, beg_x = win.getbegyx()
+    _url_map.append((beg_y + y, beg_x + x, beg_x + x + text_len, url))
+
+def url_at(screen_y: int, screen_x: int) -> str | None:
+    for (sy, x0, x1, url) in _url_map:
+        if sy == screen_y and x0 <= screen_x < x1:
+            return url
+    return None
+
+
 # ── Curses drawing primitives ──────────────────────────────────────────────────
 
 def init_colors():
@@ -157,7 +179,8 @@ def safe_addstr(win, y: int, x: int, text: str, attr: int = 0):
 
 
 def safe_addlink(win, y: int, x: int, text: str, url: str, attr: int = 0):
-    safe_addstr(win, y, x, text, attr)
+    safe_addstr(win, y, x, text, attr | curses.A_UNDERLINE)
+    register_link(win, y, x, len(text), url)
 
 
 def hline(win, y: int, x: int, length: int, char: str = "─"):
@@ -272,7 +295,7 @@ def render_pr_row(win, y: int, pr: dict, show_author: bool, max_x: int, stash_ur
     """Render one PR (two lines: main + detail)."""
     pr_id   = f"#{pr.get('id','?')}"
     repo    = pr.get("repo","")
-    author  = trunc(pr.get("author",""), 12) if show_author else ""
+    author  = trunc(pr.get("author",""), 16) if show_author else ""
 
     build_txt, build_c = build_badge(pr.get("build_state"))
     qg_txt,    qg_c    = qg_badge(pr.get("qg_label"))
@@ -283,7 +306,7 @@ def render_pr_row(win, y: int, pr: dict, show_author: bool, max_x: int, stash_ur
     if total == 0:
         appr_str, appr_c = "No reviewers", C_DIM
     elif appr > 0:
-        appr_str, appr_c = "Approved",     C_GREEN
+        appr_str, appr_c = "APPROVED",     C_GREEN
     else:
         appr_str, appr_c = "Pending",      C_DIM
     nw_txt = " NEEDS WORK" if needs_work > 0 else ""
@@ -297,7 +320,7 @@ def render_pr_row(win, y: int, pr: dict, show_author: bool, max_x: int, stash_ur
     right_w = len(right)
 
     # compute space for title
-    left_w = 5 + 1 + len(repo) + 1 + (13 if show_author else 0)
+    left_w = 5 + 1 + len(repo) + 1 + (17 if show_author else 0)
     title_w = max(8, max_x - left_w - right_w - 2)
     title   = trunc(pr.get("title",""), title_w)
 
@@ -306,7 +329,7 @@ def render_pr_row(win, y: int, pr: dict, show_author: bool, max_x: int, stash_ur
     safe_addstr(win, y, x, pr_id,  ca(C_DIM));         x += 6
     safe_addstr(win, y, x, repo,   ca(C_DIM));         x += len(repo) + 1
     if show_author:
-        safe_addstr(win, y, x, author, ca(C_DIM));     x += 13
+        safe_addstr(win, y, x, author, ca(C_DIM));     x += 17
     url = make_pr_url(pr, stash_url)
     safe_addlink(win, y, x, title, url, ca(C_BRIGHT))
 
@@ -425,7 +448,7 @@ def render_kanban(win, bb: dict | None, jira: dict | None):
             if row >= max_y - 1:
                 break
             # type tag
-            safe_addstr(win, row, card_x, trunc(itype, 6), ca(tc))
+            safe_addstr(win, row, card_x, trunc(itype, card_w), ca(tc))
             row += 1
             # blank separator
             row += 1
@@ -539,6 +562,7 @@ def main(stdscr):
     curses.curs_set(0)
     stdscr.nodelay(True)
     stdscr.timeout(250)   # check for input every 250 ms
+    curses.mousemask(curses.ALL_MOUSE_EVENTS)
     init_colors()
 
     data          = DashData()
@@ -566,6 +590,17 @@ def main(stdscr):
         if key in (ord('r'), ord('R')):
             data.reload()
             next_at = time.time() + REFRESH_INTERVAL if is_work_hours() else None
+        if key == curses.KEY_MOUSE:
+            try:
+                _, mx, my, _, bstate = curses.getmouse()
+                if bstate & curses.BUTTON1_CLICKED:
+                    url = url_at(my, mx)
+                    if url:
+                        subprocess.Popen(["open", url],
+                                         stdout=subprocess.DEVNULL,
+                                         stderr=subprocess.DEVNULL)
+            except curses.error:
+                pass
 
         # ── resize check ───────────────────────────────────────────────────
         rows, cols = stdscr.getmaxyx()
@@ -603,6 +638,7 @@ def main(stdscr):
         rev_prs   = (bb.get("reviewer_prs", [])  if bb else []) or []
         stash_url = (bb.get("stash_url", "")     if bb else "") or ""
 
+        clear_url_map()
         render_header(header_win, session_start, next_at)
         render_stats(stats_win, bb or {}, jira or {})
         render_prs_section(my_prs_win,  "MY PULL REQUESTS", my_prs,  show_author=False, stash_url=stash_url)
