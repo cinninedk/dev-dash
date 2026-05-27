@@ -299,10 +299,8 @@ def render_pr_row(win, y: int, pr: dict, show_author: bool, max_x: int, stash_ur
     tasks = pr.get("tasks", 0)
     if total == 0:
         appr_str, appr_c = "No reviewers", C_DIM
-    elif appr >= total:
-        appr_str, appr_c = "Approved",     C_GREEN
     elif appr > 0:
-        appr_str, appr_c = f"{appr}/{total} approved", C_YELLOW
+        appr_str, appr_c = "Approved",     C_GREEN
     else:
         appr_str, appr_c = "Pending",      C_DIM
 

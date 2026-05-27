@@ -493,11 +493,10 @@
     const total = pr.reviewer_count ?? 0;
     const nappr = pr.approvals ?? 0;
     let apprText, apprColor;
-    if (total === 0)        { apprText = 'No reviewers';          apprColor = 'var(--dim)'; }
-    else if (nappr >= total){ apprText = 'Approved';               apprColor = 'var(--green)'; }
-    else if (nappr > 0)     { apprText = `${nappr}/${total} approved`; apprColor = 'var(--yellow)'; }
-    else                    { apprText = 'Pending';                apprColor = 'var(--dim)'; }
-    const appr = `<span style="color:${apprColor}">${apprText}</span>`;
+    let appr;
+    if (total === 0)  { appr = `<span style="color:var(--dim)">No reviewers</span>`; }
+    else if (nappr > 0){ appr = `<span class="badge b-succ">APPROVED</span>`; }
+    else              { appr = `<span style="color:var(--dim)">Pending</span>`; }
     const tasks = pr.tasks > 0
       ? `<span style="color:var(--yellow)">Tasks:${pr.tasks}</span>`
       : `<span style="color:var(--dim)">Tasks:0</span>`;
