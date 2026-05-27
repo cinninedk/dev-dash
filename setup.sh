@@ -1,11 +1,44 @@
 #!/bin/bash
-# Installs and starts the dashboard services (run once).
+# First-time setup: creates secrets/ and data/ with placeholder values.
+# Edit secrets/ files with real credentials, then run start.sh.
 
-AGENTS=~/Library/LaunchAgents
-chmod +x "$(dirname "$0")/poll.sh"
+SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+SECRETS="$SCRIPT_DIR/secrets"
+DATA="$SCRIPT_DIR/data"
 
-launchctl load "$AGENTS/com.caspernielsen.dashboard-server.plist"
-launchctl load "$AGENTS/com.caspernielsen.dashboard-poll.plist"
+mkdir -p "$SECRETS" "$DATA"
 
-echo "Dashboard running at http://localhost:666"
-echo "poll.sh fires every 60s — logs at /tmp/dashboard-poll.log"
+# ── credentials ──────────────────────────────────────────────────────────────
+CREDS="$SECRETS/credentials"
+if [ -f "$CREDS" ]; then
+    echo "  skipped  $CREDS (already exists)"
+else
+    cat > "$CREDS" <<'EOF'
+STASH_URL="https://your-bitbucket-server"
+JIRA_URL="https://your-jira-server"
+USERNAME="your-bitbucket-username"
+JIRA_PROJECTS="PROJ1,PROJ2"
+EOF
+    echo "  created  $CREDS"
+fi
+
+# ── bitbucket-token ───────────────────────────────────────────────────────────
+BB_TOKEN="$SECRETS/bitbucket-token"
+if [ -f "$BB_TOKEN" ]; then
+    echo "  skipped  $BB_TOKEN (already exists)"
+else
+    echo "your-bitbucket-pat-here" > "$BB_TOKEN"
+    echo "  created  $BB_TOKEN"
+fi
+
+# ── jira-token ────────────────────────────────────────────────────────────────
+JIRA_TOKEN="$SECRETS/jira-token"
+if [ -f "$JIRA_TOKEN" ]; then
+    echo "  skipped  $JIRA_TOKEN (already exists)"
+else
+    echo "your-jira-pat-here" > "$JIRA_TOKEN"
+    echo "  created  $JIRA_TOKEN"
+fi
+
+echo ""
+echo "Fill in secrets/ with real values, then run ./start.sh"
