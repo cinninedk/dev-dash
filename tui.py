@@ -292,7 +292,7 @@ def render_pr_row(win, y: int, pr: dict, show_author: bool, max_x: int, stash_ur
     conflict_txt = " CONFLICT" if pr.get("merge_outcome") == "CONFLICTED" else ""
 
     # fixed-width right side
-    right = f" {appr_str} T:{tasks}  {build_txt} {qg_txt}{conflict_txt}"
+    right = f" {appr_str} Tasks:{tasks}  {build_txt} {qg_txt}{conflict_txt}"
     right_w = len(right)
 
     # compute space for title
@@ -312,7 +312,7 @@ def render_pr_row(win, y: int, pr: dict, show_author: bool, max_x: int, stash_ur
     rx = max_x - right_w - 1
     task_c = C_YELLOW if tasks > 0 else C_DIM
     safe_addstr(win, y, rx,                             f" {appr_str}", ca(appr_c))
-    safe_addstr(win, y, rx + 1 + len(appr_str) + 1,    f"T:{tasks}",   ca(task_c))
+    safe_addstr(win, y, rx + 1 + len(appr_str) + 1,    f"Tasks:{tasks}",   ca(task_c))
     bx = max_x - len(build_txt) - len(qg_txt) - len(conflict_txt) - 3
     safe_addlink(win, y, bx,                            build_txt,      pr.get("build_url",""),  ca(build_c))
     safe_addstr(win, y, bx + len(build_txt) + 1,        qg_txt,         ca(qg_c))
@@ -335,7 +335,7 @@ def render_pr_row(win, y: int, pr: dict, show_author: bool, max_x: int, stash_ur
     safe_addstr(win, dy, dx, f"smells:{smells}", ca(C_YELLOW if smells> 0 else C_DIM)); dx += len(f"smells:{smells}") + 2
     safe_addstr(win, dy, dx, f"vulns:{vulns}",   ca(C_RED    if vulns > 0 else C_DIM)); dx += len(f"vulns:{vulns}")   + 2
     safe_addstr(win, dy, dx, f"hots:{hots}",     ca(C_YELLOW if hots  > 0 else C_DIM)); dx += len(f"hots:{hots}")     + 2
-    safe_addstr(win, dy, dx, f"{cmts} cmt",      ca(C_BRIGHT if cmts  > 0 else C_DIM))
+    safe_addstr(win, dy, dx, f"{cmts} comments",  ca(C_BRIGHT if cmts  > 0 else C_DIM))
 
 
 def render_prs_section(win, title: str, prs: list, show_author: bool, stash_url: str = ""):
