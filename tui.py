@@ -8,7 +8,6 @@ Quit: q or Ctrl-C.
 
 import curses
 import json
-import os
 import sys
 import time
 import threading
@@ -157,24 +156,8 @@ def safe_addstr(win, y: int, x: int, text: str, attr: int = 0):
         pass
 
 
-def _osc8(url: str) -> bytes:
-    return f"\033]8;;{url}\033\\".encode()
-
-_OSC8_CLOSE = b"\033]8;;\033\\"
-
 def safe_addlink(win, y: int, x: int, text: str, url: str, attr: int = 0):
-    """addstr with an OSC 8 hyperlink wrapper — works in iTerm2 / Terminal.app."""
-    if url:
-        try:
-            os.write(1, _osc8(url))
-        except OSError:
-            pass
     safe_addstr(win, y, x, text, attr)
-    if url:
-        try:
-            os.write(1, _OSC8_CLOSE)
-        except OSError:
-            pass
 
 
 def hline(win, y: int, x: int, length: int, char: str = "─"):
