@@ -289,7 +289,7 @@ def render_stats(win, bb: dict, jira: dict):
 def render_pr_row(win, y: int, pr: dict, show_author: bool, max_x: int, stash_url: str = "", show_branch: bool = False):
     """Render one PR (two lines: main + detail)."""
     pr_id   = f"#{pr.get('id','?')}"
-    repo    = trunc(pr.get("repo",""), 14)
+    repo    = pr.get("repo","")
     author  = trunc(pr.get("author",""), 12) if show_author else ""
 
     build_txt, build_c = build_badge(pr.get("build_state"))
@@ -312,14 +312,14 @@ def render_pr_row(win, y: int, pr: dict, show_author: bool, max_x: int, stash_ur
     right_w = len(right)
 
     # compute space for title
-    left_w = 5 + 1 + 14 + 1 + (13 if show_author else 0)
+    left_w = 5 + 1 + len(repo) + 1 + (13 if show_author else 0)
     title_w = max(8, max_x - left_w - right_w - 2)
     title   = trunc(pr.get("title",""), title_w)
 
     # ── line 1: main row ──
     x = 1
     safe_addstr(win, y, x, pr_id,  ca(C_DIM));         x += 6
-    safe_addstr(win, y, x, repo,   ca(C_DIM));         x += 15
+    safe_addstr(win, y, x, repo,   ca(C_DIM));         x += len(repo) + 1
     if show_author:
         safe_addstr(win, y, x, author, ca(C_DIM));     x += 13
     url = make_pr_url(pr, stash_url)
