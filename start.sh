@@ -17,5 +17,7 @@ load_agent com.caspernielsen.dashboard-server "$AGENTS/com.caspernielsen.dashboa
 load_agent com.caspernielsen.dashboard-poll   "$AGENTS/com.caspernielsen.dashboard-poll.plist"
 
 echo ""
-echo "Dashboard at http://localhost:666"
+PORT=$(grep "^port:" "$(dirname "$0")/config.yaml" 2>/dev/null | awk -F': *' '{print $2}')
+PORT=${PORT:-666}
+echo "Dashboard at http://localhost:$PORT"
 echo "Logs: /tmp/dashboard-server.log  /tmp/dashboard-poll.log"

@@ -1,0 +1,5 @@
+port: 666
+poll_active_seconds: 20
+poll_idle_seconds: 60
+poll_fetch_buffer_seconds: 2
+tui_refresh_seconds: 60

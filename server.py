@@ -8,8 +8,19 @@ import http.server
 import os
 import pathlib
 
-PORT = 666
 ROOT = pathlib.Path(__file__).parent
+
+def _cfg(key: str, default):
+    try:
+        for line in (ROOT / "config.yaml").read_text().splitlines():
+            k, _, v = line.partition(":")
+            if k.strip() == key:
+                return type(default)(v.strip())
+    except Exception:
+        pass
+    return default
+
+PORT = _cfg("port", 666)
 ACTIVE = ROOT / "data" / ".active"
 
 

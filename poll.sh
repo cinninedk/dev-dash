@@ -16,6 +16,7 @@ BB_OUT="$OUT_DIR/bitbucket.json"
 JR_OUT="$OUT_DIR/jira.json"
 
 log() { echo "[$(date '+%H:%M:%S')] $*"; }
+cfg() { grep "^$1:" "$SCRIPT_DIR/config.yaml" 2>/dev/null | awk -F': *' '{print $2}'; }
 
 # ── Helpers ──
 
@@ -187,12 +188,26 @@ REVIEWER_PRS_RAW=$(curl -s -H "Authorization: Bearer $PASSWORD" \
 MY_PRS_JSON=$(process_prs_to_json "$MY_PRS_RAW" | jq -s '.')
 REV_PRS_JSON=$(process_prs_to_json "$REVIEWER_PRS_RAW" | jq -s '.')
 
+POLL_ACTIVE=${POLL_ACTIVE:-$(cfg poll_active_seconds)}
+POLL_IDLE=${POLL_IDLE:-$(cfg poll_idle_seconds)}
+POLL_ACTIVE=${POLL_ACTIVE:-20}
+POLL_IDLE=${POLL_IDLE:-60}
+ACTIVE_FILE="$OUT_DIR/.active"
+if [ -f "$ACTIVE_FILE" ] && \
+   [ $(( $(date +%s) - $(stat -f %m "$ACTIVE_FILE") )) -lt 300 ]; then
+    SLEEP=$POLL_ACTIVE
+else
+    SLEEP=$POLL_IDLE
+fi
+NEXT_POLL=$(date -u -v+${SLEEP}S +%Y-%m-%dT%H:%M:%SZ)
+
 jq -n \
     --argjson my_prs "$MY_PRS_JSON" \
     --argjson reviewer_prs "$REV_PRS_JSON" \
     --arg stash_url "$STASH_URL" \
     --arg updated "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
-    '{my_prs:$my_prs, reviewer_prs:$reviewer_prs, stash_url:$stash_url, updated:$updated}' \
+    --arg next_poll "$NEXT_POLL" \
+    '{my_prs:$my_prs, reviewer_prs:$reviewer_prs, stash_url:$stash_url, updated:$updated, next_poll:$next_poll}' \
     > "$BB_OUT"
 
 log "Bitbucket: $(echo "$MY_PRS_JSON" | jq 'length') my PRs, $(echo "$REV_PRS_JSON" | jq 'length') for review"
@@ -200,25 +215,40 @@ log "Bitbucket: $(echo "$MY_PRS_JSON" | jq 'length') my PRs, $(echo "$REV_PRS_JS
 # ── Jira ──
 log "Fetching Jira issues..."
 
-# Fetch issues assigned to me, in the relevant statuses, across configured projects
-JQL="sprint in openSprints() AND project in ($JIRA_PROJECTS) AND assignee = currentUser() AND status in (\"Open\",\"Reopened\",\"Implement\",\"Quality Assurance\",\"Business Validation\",\"Resolved\") ORDER BY updated DESC"
+# Query 1: issues currently assigned to me (Open/Reopened/Implement)
+JQL_MINE="sprint in openSprints() AND project in ($JIRA_PROJECTS) AND assignee = currentUser() AND status in (\"Open\",\"Reopened\",\"Implement\") ORDER BY updated DESC"
 
-JIRA_RAW=$(curl -s \
-    "$JIRA_URL/rest/api/2/search" \
-    -H "Authorization: Bearer $JIRA_PASSWORD" \
-    --get \
-    --data-urlencode "jql=$JQL" \
-    --data-urlencode "maxResults=50" \
-    --data-urlencode "fields=summary,status,issuetype,priority,assignee,updated")
+# Query 2: issues I implemented (moved out of Implement), now in QA/BV/Resolved
+JQL_IMPL="sprint in openSprints() AND project in ($JIRA_PROJECTS) AND status in (\"Quality Assurance\",\"Business Validation\",\"Resolved\") AND status CHANGED FROM \"Implement\" BY currentUser() ORDER BY updated DESC"
 
-ISSUES_JSON=$(echo "$JIRA_RAW" | jq '[.issues[]? | {
+JQ_PROJ='[.issues[]? | {
     key:     .key,
     summary: .fields.summary,
     status:  (.fields.status.name | ascii_upcase),
     type:    .fields.issuetype.name,
     priority:.fields.priority.name,
     updated: .fields.updated
-}]' 2>/dev/null || echo "[]")
+}]'
+
+MINE_JSON=$(curl -s \
+    "$JIRA_URL/rest/api/2/search" \
+    -H "Authorization: Bearer $JIRA_PASSWORD" \
+    --get \
+    --data-urlencode "jql=$JQL_MINE" \
+    --data-urlencode "maxResults=50" \
+    --data-urlencode "fields=summary,status,issuetype,priority,updated" \
+    | jq "$JQ_PROJ" 2>/dev/null || echo "[]")
+
+IMPL_JSON=$(curl -s \
+    "$JIRA_URL/rest/api/2/search" \
+    -H "Authorization: Bearer $JIRA_PASSWORD" \
+    --get \
+    --data-urlencode "jql=$JQL_IMPL" \
+    --data-urlencode "maxResults=50" \
+    --data-urlencode "fields=summary,status,issuetype,priority,updated" \
+    | jq "$JQ_PROJ" 2>/dev/null || echo "[]")
+
+ISSUES_JSON=$(jq -n --argjson a "$MINE_JSON" --argjson b "$IMPL_JSON" '$a + $b')
 
 jq -n \
     --argjson issues "$ISSUES_JSON" \
@@ -227,15 +257,8 @@ jq -n \
     '{issues:$issues, jira_url:$jira_url, updated:$updated}' \
     > "$JR_OUT"
 
-log "Jira: $(echo "$ISSUES_JSON" | jq 'length') issues written"
+log "Jira: $(echo "$MINE_JSON" | jq 'length') mine + $(echo "$IMPL_JSON" | jq 'length') implemented = $(echo "$ISSUES_JSON" | jq 'length') issues written"
 
-ACTIVE_FILE="$OUT_DIR/.active"
-if [ -f "$ACTIVE_FILE" ] && \
-   [ $(( $(date +%s) - $(stat -f %m "$ACTIVE_FILE") )) -lt 300 ]; then
-    SLEEP=20
-else
-    SLEEP=60
-fi
-log "Done. BB → $BB_OUT  |  Jira → $JR_OUT. Sleeping ${SLEEP}s."
+log "Done. BB → $BB_OUT  |  Jira → $JR_OUT. Sleeping ${SLEEP}s (next_poll: $NEXT_POLL)."
 sleep "$SLEEP"
 done

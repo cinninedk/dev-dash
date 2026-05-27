@@ -417,17 +417,7 @@
   let jiraData      = null;
   let nextAt        = null;
   let refreshTimer  = null;
-  let lastActivity  = Date.now();
-
-  const ACTIVE_MS   = 5 * 60 * 1000;  // 5 min idle threshold
-  const ACTIVE_INT  = 10_000;          // 10s when active
-  const IDLE_INT    = 60_000;          // 60s when idle
-
-  function touchActivity() { lastActivity = Date.now(); }
-  function isActive() { return Date.now() - lastActivity < ACTIVE_MS; }
-
-  ['mousemove','keydown','scroll','click'].forEach(e =>
-    document.addEventListener(e, touchActivity, { passive: true }));
+  const FETCH_BUFFER_MS = 2_000;  // ms after next_poll before fetching
 
   // ── Utilities ──────────────────────────────────────────────────────────
 
@@ -693,13 +683,11 @@
 
   function scheduleRefresh() {
     if (refreshTimer) clearTimeout(refreshTimer);
-    if (isWorkHours()) {
-      const interval = isActive() ? ACTIVE_INT : IDLE_INT;
-      nextAt = Date.now() + interval;
-      refreshTimer = setTimeout(loadData, interval);
-    } else {
-      nextAt = null;
-    }
+    if (!isWorkHours()) { nextAt = null; return; }
+    const np = bbData && bbData.next_poll ? new Date(bbData.next_poll).getTime() : 0;
+    const fireAt = np > Date.now() ? np + FETCH_BUFFER_MS : Date.now() + 60_000;
+    nextAt = fireAt;
+    refreshTimer = setTimeout(loadData, fireAt - Date.now());
   }
 
   // ── Clock / tick ────────────────────────────────────────────────────────

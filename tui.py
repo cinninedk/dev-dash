@@ -30,9 +30,20 @@ C_BLUE   = 6   # story type
 C_BORDER = 7   # border lines (same as dim but may differ)
 C_HEADER = 8   # header background
 
-REFRESH_INTERVAL = 60   # seconds between data refreshes
 WORK_START_H     = 8
 WORK_END_H       = 18
+
+def _cfg(key: str, default: int) -> int:
+    try:
+        for line in (BASE_DIR / "config.yaml").read_text().splitlines():
+            k, _, v = line.partition(":")
+            if k.strip() == key:
+                return int(v.strip())
+    except Exception:
+        pass
+    return default
+
+REFRESH_INTERVAL = _cfg("tui_refresh_seconds", 60)
 
 
 # ── Helpers ────────────────────────────────────────────────────────────────────
