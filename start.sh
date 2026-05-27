@@ -4,8 +4,18 @@
 AGENTS=~/Library/LaunchAgents
 chmod +x "$(dirname "$0")/poll.sh"
 
-launchctl load "$AGENTS/com.caspernielsen.dashboard-server.plist"
-launchctl load "$AGENTS/com.caspernielsen.dashboard-poll.plist"
+load_agent() {
+    local label="$1" plist="$2"
+    if launchctl list "$label" &>/dev/null; then
+        echo "  already running  $label"
+    else
+        launchctl load "$plist" && echo "  started  $label"
+    fi
+}
 
-echo "Dashboard running at http://localhost:666"
-echo "poll.sh fires every 60s — logs at /tmp/dashboard-poll.log"
+load_agent com.caspernielsen.dashboard-server "$AGENTS/com.caspernielsen.dashboard-server.plist"
+load_agent com.caspernielsen.dashboard-poll   "$AGENTS/com.caspernielsen.dashboard-poll.plist"
+
+echo ""
+echo "Dashboard at http://localhost:666"
+echo "Logs: /tmp/dashboard-server.log  /tmp/dashboard-poll.log"
