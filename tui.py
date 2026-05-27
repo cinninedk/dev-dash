@@ -156,8 +156,26 @@ def safe_addstr(win, y: int, x: int, text: str, attr: int = 0):
         pass
 
 
+_pending_links: list[tuple[int, int, str, str]] = []
+
 def safe_addlink(win, y: int, x: int, text: str, url: str, attr: int = 0):
     safe_addstr(win, y, x, text, attr)
+    if url:
+        wy, wx = win.getbegyx()
+        _pending_links.append((wy + y, wx + x, text, url))
+
+def flush_links():
+    if not _pending_links:
+        return
+    parts = []
+    for wy, wx, text, url in _pending_links:
+        parts.append(f"\033[{wy+1};{wx+1}H\033]8;;{url}\033\\{text}\033]8;;\033\\")
+    _pending_links.clear()
+    try:
+        sys.stdout.write("".join(parts))
+        sys.stdout.flush()
+    except Exception:
+        pass
 
 
 def hline(win, y: int, x: int, length: int, char: str = "─"):
@@ -609,6 +627,7 @@ def main(stdscr):
             except curses.error:
                 pass
         curses.doupdate()
+        flush_links()
 
 
 def run():

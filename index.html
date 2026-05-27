@@ -493,13 +493,14 @@
     const total = pr.reviewer_count ?? 0;
     const nappr = pr.approvals ?? 0;
     let apprText, apprColor;
-    if (total === 0)   { apprText = 'No reviewers'; apprColor = 'var(--dim)'; }
-    else if (nappr > 0){ apprText = 'Approved';     apprColor = 'var(--green)'; }
-    else               { apprText = 'Unapproved';   apprColor = 'var(--red)'; }
+    if (total === 0)        { apprText = 'No reviewers';          apprColor = 'var(--dim)'; }
+    else if (nappr >= total){ apprText = 'Approved';               apprColor = 'var(--green)'; }
+    else if (nappr > 0)     { apprText = `${nappr}/${total} approved`; apprColor = 'var(--yellow)'; }
+    else                    { apprText = 'Pending';                apprColor = 'var(--dim)'; }
     const appr = `<span style="color:${apprColor}">${apprText}</span>`;
     const tasks = pr.tasks > 0
-      ? `<span style="color:var(--yellow)">T:${pr.tasks}</span>`
-      : `<span style="color:var(--dim)">T:0</span>`;
+      ? `<span style="color:var(--yellow)">Tasks:${pr.tasks}</span>`
+      : `<span style="color:var(--dim)">Tasks:0</span>`;
 
     const conflict = pr.merge_outcome === 'CONFLICTED'
       ? `<span class="badge b-fail">CONFLICT</span>`
