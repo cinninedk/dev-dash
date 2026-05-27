@@ -200,6 +200,9 @@ else
     SLEEP=$POLL_IDLE
 fi
 NEXT_POLL=$(date -u -v+${SLEEP}S +%Y-%m-%dT%H:%M:%SZ)
+WORK_HOURS_ENABLED=$(cfg work_hours_enabled); WORK_HOURS_ENABLED=${WORK_HOURS_ENABLED:-true}
+WORK_START_HOUR=$(cfg work_start_hour);       WORK_START_HOUR=${WORK_START_HOUR:-8}
+WORK_END_HOUR=$(cfg work_end_hour);           WORK_END_HOUR=${WORK_END_HOUR:-18}
 
 jq -n \
     --argjson my_prs "$MY_PRS_JSON" \
@@ -207,7 +210,10 @@ jq -n \
     --arg stash_url "$STASH_URL" \
     --arg updated "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
     --arg next_poll "$NEXT_POLL" \
-    '{my_prs:$my_prs, reviewer_prs:$reviewer_prs, stash_url:$stash_url, updated:$updated, next_poll:$next_poll}' \
+    --argjson work_hours_enabled "$([ "$WORK_HOURS_ENABLED" = "true" ] && echo true || echo false)" \
+    --argjson work_start_hour "$WORK_START_HOUR" \
+    --argjson work_end_hour "$WORK_END_HOUR" \
+    '{my_prs:$my_prs, reviewer_prs:$reviewer_prs, stash_url:$stash_url, updated:$updated, next_poll:$next_poll, work_hours_enabled:$work_hours_enabled, work_start_hour:$work_start_hour, work_end_hour:$work_end_hour}' \
     > "$BB_OUT"
 
 log "Bitbucket: $(echo "$MY_PRS_JSON" | jq 'length') my PRs, $(echo "$REV_PRS_JSON" | jq 'length') for review"

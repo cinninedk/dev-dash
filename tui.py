@@ -30,25 +30,30 @@ C_BLUE   = 6   # story type
 C_BORDER = 7   # border lines (same as dim but may differ)
 C_HEADER = 8   # header background
 
-WORK_START_H     = 8
-WORK_END_H       = 18
-
-def _cfg(key: str, default: int) -> int:
+def _cfg(key: str, default):
     try:
         for line in (BASE_DIR / "config.yaml").read_text().splitlines():
             k, _, v = line.partition(":")
             if k.strip() == key:
-                return int(v.strip())
+                val = v.strip()
+                if isinstance(default, bool):
+                    return val.lower() not in ("false", "0", "no")
+                return type(default)(val)
     except Exception:
         pass
     return default
 
-REFRESH_INTERVAL = _cfg("tui_refresh_seconds", 60)
+REFRESH_INTERVAL   = _cfg("tui_refresh_seconds", 60)
+WORK_HOURS_ENABLED = _cfg("work_hours_enabled",  True)
+WORK_START_H       = _cfg("work_start_hour",      8)
+WORK_END_H         = _cfg("work_end_hour",         18)
 
 
 # ── Helpers ────────────────────────────────────────────────────────────────────
 
 def is_work_hours() -> bool:
+    if not WORK_HOURS_ENABLED:
+        return True
     now = datetime.now()
     return now.weekday() < 5 and WORK_START_H <= now.hour < WORK_END_H
 

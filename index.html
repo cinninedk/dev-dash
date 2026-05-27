@@ -418,6 +418,9 @@
   let nextAt        = null;
   let refreshTimer  = null;
   const FETCH_BUFFER_MS = 2_000;  // ms after next_poll before fetching
+  let workHoursEnabled = true;
+  let workStartHour    = 8;
+  let workEndHour      = 18;
 
   // ── Utilities ──────────────────────────────────────────────────────────
 
@@ -449,8 +452,9 @@
   }
 
   function isWorkHours() {
+    if (!workHoursEnabled) return true;
     const d = new Date(), day = d.getDay(), h = d.getHours();
-    return day >= 1 && day <= 5 && h >= 8 && h < 18;
+    return day >= 1 && day <= 5 && h >= workStartHour && h < workEndHour;
   }
 
   // ── Badges ─────────────────────────────────────────────────────────────
@@ -671,6 +675,9 @@
       jiraData = jira;
       if (bb.stash_url)   STASH = bb.stash_url;
       if (jira.jira_url)  JIRA  = jira.jira_url;
+      if (bb.work_hours_enabled != null) workHoursEnabled = bb.work_hours_enabled;
+      if (bb.work_start_hour    != null) workStartHour    = bb.work_start_hour;
+      if (bb.work_end_hour      != null) workEndHour      = bb.work_end_hour;
       renderAll(bb, jira);
     } catch {
       document.getElementById('poll-status').textContent = '⚠ no data – run ./poll.sh';
