@@ -8,15 +8,16 @@ DATA="$SCRIPT_DIR/data"
 
 mkdir -p "$SECRETS" "$DATA"
 
-# ── credentials ──────────────────────────────────────────────────────────────
-CREDS="$SECRETS/credentials"
+# ── config ───────────────────────────────────────────────────────────────────
+CREDS="$SECRETS/config"
 if [ -f "$CREDS" ]; then
     echo "  skipped  $CREDS (already exists)"
 else
     cat > "$CREDS" <<'EOF'
 STASH_URL="https://your-bitbucket-server"
 JIRA_URL="https://your-jira-server"
-USERNAME="your-bitbucket-username"
+SONAR_URL="https://your-sonarqube-server"
+JENKINS_URL="https://your-jenkins-server"
 JIRA_PROJECTS="PROJ1,PROJ2"
 EOF
     echo "  created  $CREDS"

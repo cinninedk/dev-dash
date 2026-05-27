@@ -4,7 +4,7 @@
 # Place this file next to index.html and the data/ folder.
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
-source "$SCRIPT_DIR/secrets/credentials"
+source "$SCRIPT_DIR/secrets/config"
 PASSWORD=$(cat "$SCRIPT_DIR/secrets/bitbucket-token")
 JIRA_PASSWORD=$(cat "$SCRIPT_DIR/secrets/jira-token")
 SONAR_PASSWORD=$(cat "$SCRIPT_DIR/secrets/sonar-token")
@@ -61,8 +61,7 @@ get_sonar_info() {
 
     local qg_raw="NONE"
     if [ -n "$sonar_link" ] && [ "$sonar_link" != "null" ]; then
-        local sonar_base sonar_proj sonar_branch
-        sonar_base=$(echo "$sonar_link" | grep -oE 'https?://[^/]+')
+        local sonar_proj sonar_branch
         sonar_proj=$(echo "$sonar_link" | grep -oE '[?&]id=[^&]+' | cut -d= -f2 \
             | python3 -c "import sys,urllib.parse; print(urllib.parse.unquote(sys.stdin.read().strip()))" 2>/dev/null)
         sonar_branch=$(echo "$sonar_link" | grep -oE '[?&]branch=[^&]+' | cut -d= -f2 \
@@ -73,7 +72,7 @@ get_sonar_info() {
                 --get \
                 --data-urlencode "projectKey=$sonar_proj" \
                 ${sonar_branch:+--data-urlencode "branch=$sonar_branch"} \
-                "$sonar_base/api/qualitygates/project_status" \
+                "$SONAR_URL/api/qualitygates/project_status" \
                 | jq -r '.projectStatus.status // "NONE"')
         fi
     fi

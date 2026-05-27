@@ -33,12 +33,12 @@ brew install jq
 ```
 dashboard/
 └── secrets/
-    ├── credentials        # URLs, username, project keys
+    ├── config             # URLs, username, project keys
     ├── bitbucket-token    # Bitbucket personal access token
     └── jira-token         # Jira personal access token
 ```
 
-**`secrets/credentials`** — copy and fill in your values:
+**`secrets/config`** — copy and fill in your values:
 ```bash
 STASH_URL="https://your-bitbucket-server"
 JIRA_URL="https://your-jira-server"
@@ -215,7 +215,7 @@ dashboard/
 ├── stop.sh               # unload launchd agents
 ├── status.sh             # show service status + last poll log
 ├── secrets/              # gitignored — credentials go here
-│   ├── credentials
+│   ├── config
 │   ├── bitbucket-token
 │   └── jira-token
 └── data/                 # gitignored — written by poll.sh
