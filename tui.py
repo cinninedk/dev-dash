@@ -453,7 +453,7 @@ def render_kanban(win, bb: dict | None, jira: dict | None):
             jira_url   = (jira.get("jira_url", "") if jira else "") or ""
             issue_url  = f"{jira_url}/browse/{key}" if jira_url else ""
 
-            key_color = C_GREEN if teknisk_qa else C_BRIGHT
+            key_color = C_GREEN if (teknisk_qa and issue.get("status") != "RESOLVED") else C_BRIGHT
             safe_addlink(win, row, card_x,
                          trunc(key, card_w), issue_url, ca(key_color))
             row += 1
