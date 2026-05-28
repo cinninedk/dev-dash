@@ -228,21 +228,12 @@ process_prs_to_json() {
 while true; do
 
 # Read config (re-read each iteration so edits take effect without restart)
-POLL_ACTIVE=$(cfg poll_active_seconds);           POLL_ACTIVE=${POLL_ACTIVE:-15}
-POLL_IDLE=$(cfg poll_idle_seconds);               POLL_IDLE=${POLL_IDLE:-60}
+SLEEP=$(cfg poll_active_seconds);                 SLEEP=${SLEEP:-15}
 POLL_BUILD_STALE=$(cfg poll_build_stale_seconds); POLL_BUILD_STALE=${POLL_BUILD_STALE:-600}
 WORK_HOURS_ENABLED=$(cfg work_hours_enabled);     WORK_HOURS_ENABLED=${WORK_HOURS_ENABLED:-true}
 WORK_START_HOUR=$(cfg work_start_hour);           WORK_START_HOUR=${WORK_START_HOUR:-8}
 WORK_END_HOUR=$(cfg work_end_hour);               WORK_END_HOUR=${WORK_END_HOUR:-18}
 
-# Decide sleep interval (active = browser touched .active file in last 5 min)
-ACTIVE_FILE="$OUT_DIR/.active"
-if [ -f "$ACTIVE_FILE" ] && \
-   [ $(( $(date +%s) - $(stat -f %m "$ACTIVE_FILE") )) -lt 300 ]; then
-    SLEEP=$POLL_ACTIVE
-else
-    SLEEP=$POLL_IDLE
-fi
 NEXT_POLL=$(date -u -v+${SLEEP}S +%Y-%m-%dT%H:%M:%SZ)
 
 # Load build/sonar cache (read once; available to process_prs_to_json subshells)
