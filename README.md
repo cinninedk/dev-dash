@@ -116,15 +116,18 @@ Open **http://localhost:666**.
 ├─ stats: My PRs │ For Review │ Jira Active │ Builds Failing ─────────┤
 ├─ MY PULL REQUESTS ──────────────────────────┬─ ACTIVITY FEED ───────┤
 │  #id  repo  title            ✓appr/total    │  Jira quick stats      │
-│       commit  bugs smells vulns hots  N cmt │  Build summary         │
+│       commit  bugs smells vulns hots  N cmt │                        │
 ├─ JIRA KANBAN ───────────────────────────────┤                        │
+│  [visible columns only — empty ones hidden] │                        │
 │  OPEN │ IMPLEMENT │ QA │ BV │ RESOLVED      │                        │
+│  — or, when nothing assigned to you: —      │                        │
+│  NEXT TASK (2×wide) │ QA │ BV │ RESOLVED   │                        │
 ├─ PRs FOR MY REVIEW ─────────────────────────┴────────────────────────┤
 │  (collapses to title bar when empty)                                  │
 └────────────────────────────────────────────────────────────────────┘
 ```
 
-All five kanban columns scroll independently.
+All kanban columns scroll independently. Empty columns are hidden automatically.
 
 ### Kanban columns
 
@@ -132,9 +135,12 @@ All five kanban columns scroll independently.
 |--------|------------------|
 | OPEN | Issues assigned to you in Open or Reopened status |
 | IMPLEMENT | Issues assigned to you in Implement status |
+| NEXT TASK | Shown instead of OPEN+IMPLEMENT when you have nothing assigned — unassigned or your sprint Stories not yet in QA/BV/Resolved. Double width. |
 | QA | All sprint issues with label `teknisk_QA` (yours highlighted in green) + QA issues you implemented |
 | BV | Business Validation issues you implemented |
 | RESOLVED | Issues you moved out of Implement this sprint |
+
+Empty columns are hidden and the remaining ones expand to fill the width.
 
 Issues with the `teknisk_QA` label are shown at the top of the QA column with a
 blue `TEKN·QA` badge. Those assigned to you have a green issue key. They are
@@ -210,10 +216,11 @@ iterations. Each iteration:
    only when the PR's commit hash changed, the last known build was `INPROGRESS`,
    or the cached data is older than `poll_build_stale_seconds`. Results are cached
    in `data/.build-cache.json`. Closed PRs are evicted from the cache automatically.
-3. **Jira** — three queries every iteration:
+3. **Jira** — four queries every iteration:
    - Issues currently assigned to you (Open / Implement / QA / BV)
    - Issues you moved out of Implement this sprint (now in QA / BV / Resolved)
    - All sprint QA issues with label `teknisk_QA` (any assignee)
+   - Next task candidates: sprint Stories not in QA/BV/Resolved, unassigned or yours (shown when you have nothing in OPEN/IMPLEMENT)
 4. Writes `data/bitbucket.json` and `data/jira.json`
 
 The browser and TUI only read those files — they never call the APIs directly.
