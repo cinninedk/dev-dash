@@ -125,7 +125,7 @@
     /* ── MAIN GRID ── */
     main {
       display: grid;
-      grid-template-columns: 1fr 270px;
+      grid-template-columns: 1fr;
       grid-template-rows: auto 1fr auto;
       flex: 1;
       overflow: hidden;
@@ -149,8 +149,10 @@
     /* ── PR LIST ── */
     #my-prs      { grid-column: 1; grid-row: 1; }
     #jira-kanban { grid-column: 1; grid-row: 2; overflow: hidden; display: flex; flex-direction: column; min-height: 0; }
-    #activity-feed { grid-column: 2; grid-row: 1 / 3; border-right: none; overflow-y: auto; min-height: 0; }
-    #reviewer-prs  { grid-column: 1 / 3; grid-row: 3; border-right: none; }
+    #reviewer-prs  { grid-column: 1; grid-row: 3; border-right: none; }
+    #jira-review-list { border-bottom: 1px solid var(--border); max-height: 200px; overflow-y: auto; }
+    .jira-review-label { padding: 3px 10px; font-size: 15px; color: var(--dim); letter-spacing: 1px; background: var(--panel); border-bottom: 1px solid var(--border); position: sticky; top: 0; }
+    #reviewer-prs-list { max-height: 250px; overflow-y: auto; }
 
 
     .pr-item { border-bottom: 1px solid rgba(74,45,0,0.35); }
@@ -224,6 +226,7 @@
     #kanban-cols {
       display: grid;
       grid-template-columns: repeat(5, 1fr);
+      grid-auto-rows: 1fr;
       flex: 1;
       overflow: hidden;
       min-height: 0;
@@ -238,7 +241,7 @@
     }
     .kanban-col:last-child { border-right: none; }
 
-    #cards-open, #cards-implement, #cards-qa, #cards-bv, #cards-resolved {
+    #cards-open, #cards-implement, #cards-qa, #cards-bv, #cards-resolved, #cards-next {
       flex: 1;
       overflow-y: auto;
       min-height: 0;
@@ -378,46 +381,36 @@
     <section id="jira-kanban">
       <div class="section-title">── JIRA KANBAN</div>
       <div id="kanban-cols">
-        <div class="kanban-col">
+        <div class="kanban-col" id="col-open">
           <div class="col-header">OPEN <span class="col-count" id="cnt-open">0</span></div>
           <div id="cards-open"></div>
         </div>
-        <div class="kanban-col">
+        <div class="kanban-col" id="col-implement">
           <div class="col-header">IMPLEMENT <span class="col-count" id="cnt-implement">0</span></div>
           <div id="cards-implement"></div>
         </div>
-        <div class="kanban-col">
+        <div class="kanban-col" id="col-next" style="display:none">
+          <div class="col-header">NEXT TASK <span class="col-count" id="cnt-next">0</span></div>
+          <div id="cards-next"></div>
+        </div>
+        <div class="kanban-col" id="col-qa">
           <div class="col-header">QA <span class="col-count" id="cnt-qa">0</span></div>
           <div id="cards-qa"></div>
         </div>
-        <div class="kanban-col">
+        <div class="kanban-col" id="col-bv">
           <div class="col-header">BV <span class="col-count" id="cnt-bv">0</span></div>
           <div id="cards-bv"></div>
         </div>
-        <div class="kanban-col">
+        <div class="kanban-col" id="col-resolved">
           <div class="col-header">RESOLVED <span class="col-count" id="cnt-resolved">0</span></div>
           <div id="cards-resolved"></div>
         </div>
       </div>
     </section>
 
-    <aside id="activity-feed">
-      <div class="section-title">── ACTIVITY FEED</div>
-
-      <div class="feed-block">
-        <h3>▸ JIRA QUICK STATS</h3>
-        <div id="jira-stats"></div>
-      </div>
-
-      <div class="feed-block">
-        <h3>▸ MY BUILD STATUS</h3>
-        <div id="build-summary"></div>
-      </div>
-
-    </aside>
-
     <section id="reviewer-prs">
-      <div class="section-title">── PRs FOR MY REVIEW</div>
+      <div class="section-title">── FOR MY REVIEW</div>
+      <div id="jira-review-list"></div>
       <div id="reviewer-prs-list" class="pr-list"></div>
     </section>
   </main>
@@ -494,12 +487,15 @@
     return url ? `<a href="${esc(url)}" target="_blank" rel="noopener" style="text-decoration:none">${badge}</a>` : badge;
   }
 
-  function qgBadge(label) {
+  function qgBadge(label, url) {
+    const wrap = (cls, text) => url
+      ? `<a href="${esc(url)}" target="_blank" rel="noopener" class="badge ${cls}" style="text-decoration:none">${text}</a>`
+      : `<span class="badge ${cls}">${text}</span>`;
     switch (label) {
-      case 'PASS': return '<span class="badge b-qpass">QG PASSED</span>';
-      case 'FAIL': return '<span class="badge b-qfail">QG FAILED</span>';
-      case 'WARN': return '<span class="badge b-qwarn">QG WARNING</span>';
-      default:     return '<span class="badge b-qna">QG UNKNOWN</span>';
+      case 'PASS': return wrap('b-qpass', 'QG PASSED');
+      case 'FAIL': return wrap('b-qfail', 'QG FAILED');
+      case 'WARN': return wrap('b-qwarn', 'QG WARNING');
+      default:     return wrap('b-qna',   'QG UNKNOWN');
     }
   }
 
@@ -556,7 +552,7 @@
           <span class="pr-title">${titleHtml}</span>
           <span class="pr-meta">${appr} ${nwBadge} ${tasks}</span>
           ${buildBadge(pr.build_state, pr.build_name, pr.build_url)}
-          ${qgBadge(pr.qg_label)}
+          ${qgBadge(pr.qg_label, pr.sonar_url)}
           ${conflict}
         </div>
         <div class="pr-detail">
@@ -599,10 +595,9 @@
     return p;
   }
 
-  function jiraCard(issue) {
+  function jiraCard(issue, hideTqaBadge = false) {
     const url = JIRA ? `${JIRA}/browse/${esc(issue.key)}` : null;
-    const highlighted = 'assigned_to_me' in issue ? issue.assigned_to_me : false;
-    const keyColor = highlighted ? 'var(--green)' : 'var(--bright)';
+    const keyColor = 'var(--bright)';
     const keyHtml = url
       ? `<a href="${url}" target="_blank" rel="noopener" style="color:${keyColor};text-decoration:none">${esc(issue.key)}</a>`
       : `<span style="color:${keyColor}">${esc(issue.key)}</span>`;
@@ -612,7 +607,7 @@
         <div class="card-summary">${esc(issue.summary)}</div>
         <div class="card-meta">
           <span class="type-badge ${typeClass(issue.type)}">${esc(issue.type ?? '?')}</span>
-          ${issue.teknisk_qa ? '<span class="tqa-badge">TEKN·QA</span>' : ''}
+          ${issue.teknisk_qa && !hideTqaBadge ? '<span class="tqa-badge">TEKN·QA</span>' : ''}
         </div>
       </div>`;
   }
@@ -659,37 +654,53 @@
         ? cards.map(jiraCard).join('')
         : '<div style="padding:8px 10px;color:var(--dim);font-size:14px">–</div>';
     }
-    // QA column: tqa_issues first (highlighted), then regular QA issues below
+
+    // QA column: all issues you implemented awaiting review
     const qaRegular = issues.filter(i => i.status === 'QUALITY ASSURANCE');
-    const qaCount = tqaIssues.length + qaRegular.length;
+    const qaCount = qaRegular.length;
     document.getElementById('cnt-qa').textContent = qaCount;
-    let qaHtml = tqaIssues.map(jiraCard).join('');
-    if (tqaIssues.length && qaRegular.length) {
-      qaHtml += '<div style="border-top:1px solid var(--border);margin:4px 0 8px"></div>';
-    }
-    qaHtml += qaRegular.map(jiraCard).join('');
-    document.getElementById('cards-qa').innerHTML = qaHtml ||
+    document.getElementById('cards-qa').innerHTML = qaRegular.map(jiraCard).join('') ||
       '<div style="padding:8px 10px;color:var(--dim);font-size:14px">–</div>';
 
-    // Jira quick stats (by type)
-    const byType = {};
-    issues.forEach(i => { byType[i.type ?? 'Other'] = (byType[i.type ?? 'Other'] || 0) + 1; });
-    let statsHtml = Object.entries(byType)
-      .map(([k,v]) => `<div class="kv-row"><span class="k">${esc(k)}</span><span class="v">${v}</span></div>`)
-      .join('');
-    statsHtml += `<div class="kv-row" style="margin-top:4px;border-top:1px solid var(--border);padding-top:4px">
-      <span class="k">TOTAL</span><span class="v">${issues.length}</span></div>`;
-    document.getElementById('jira-stats').innerHTML = statsHtml;
+    // FOR MY REVIEW: unassigned teknisk_QA issues I did not implement
+    const implementedKeys = new Set(issues.map(i => i.key));
+    const tqaMine = tqaIssues.filter(i => i.unassigned && !i.implemented_by_me);
+    const jiraReviewEl = document.getElementById('jira-review-list');
+    if (tqaMine.length) {
+      jiraReviewEl.innerHTML =
+        '<div class="jira-review-label">▸ TECH QA — NEEDS MY REVIEW</div>' +
+        tqaMine.map(i => jiraCard(i, true)).join('');
+    } else {
+      jiraReviewEl.innerHTML = '';
+    }
 
-    // Build summary
-    const succ = myPRs.filter(p => p.build_state === 'SUCCESSFUL').length;
-    const prog = myPRs.filter(p => p.build_state === 'INPROGRESS').length;
-    const none = myPRs.filter(p => p.build_state === 'NO_BUILD').length;
-    document.getElementById('build-summary').innerHTML = `
-      <div class="kv-row"><span class="k">SUCC</span><span class="v" style="color:var(--green)">${succ}</span></div>
-      <div class="kv-row"><span class="k">FAIL</span><span class="v" style="${failing>0?'color:var(--red)':''}">${failing}</span></div>
-      <div class="kv-row"><span class="k">PROG</span><span class="v" style="${prog>0?'color:var(--yellow)':''}">${prog}</span></div>
-      <div class="kv-row"><span class="k">NONE</span><span class="v" style="color:var(--dim)">${none}</span></div>`;
+    // Next task mode: show when nothing assigned in Open/Implement
+    const nextTasks = jira.next_tasks ?? [];
+    const nextMode = cols.open.length === 0 && cols.implement.length === 0;
+    document.getElementById('cnt-next').textContent = nextTasks.length;
+    document.getElementById('cards-next').innerHTML = nextTasks.length
+      ? nextTasks.map(jiraCard).join('')
+      : '<div style="padding:8px 10px;color:var(--dim);font-size:14px">–</div>';
+
+    // Column visibility: hide empty columns; NEXT TASK replaces OPEN+IMPLEMENT when unassigned
+    const colVisibility = {
+      'col-open':     !nextMode && cols.open.length > 0,
+      'col-implement':!nextMode && cols.implement.length > 0,
+      'col-next':      nextMode,
+      'col-qa':        qaCount > 0,
+      'col-bv':        cols.bv.length > 0,
+      'col-resolved':  cols.resolved.length > 0,
+    };
+    for (const [id, show] of Object.entries(colVisibility)) {
+      document.getElementById(id).style.display = show ? '' : 'none';
+    }
+    // Build grid template: NEXT TASK gets 2fr, all others 1fr
+    const gridParts = Object.entries(colVisibility)
+      .filter(([, show]) => show)
+      .map(([id]) => id === 'col-next' ? '2fr' : '1fr');
+    document.getElementById('kanban-cols').style.gridTemplateColumns = gridParts.join(' ');
+
+
 
 
     // Header poll status
@@ -728,7 +739,10 @@
     if (refreshTimer) clearTimeout(refreshTimer);
     if (!isWorkHours()) { nextAt = null; return; }
     const np = bbData && bbData.next_poll ? new Date(bbData.next_poll).getTime() : 0;
-    const fireAt = np > Date.now() ? np + FETCH_BUFFER_MS : Date.now() + 60_000;
+    const pollInterval = (bbData?.next_poll && bbData?.updated)
+      ? Math.max(5_000, new Date(bbData.next_poll) - new Date(bbData.updated))
+      : 15_000;
+    const fireAt = np > Date.now() ? np + FETCH_BUFFER_MS : Date.now() + pollInterval + FETCH_BUFFER_MS;
     nextAt = fireAt;
     refreshTimer = setTimeout(loadData, fireAt - Date.now());
   }
