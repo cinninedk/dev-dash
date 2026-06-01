@@ -1,8 +1,6 @@
 port: 666
 poll_active_seconds: 15
-poll_idle_seconds: 60
-poll_fetch_buffer_seconds: 2
-poll_build_stale_seconds: 600
+poll_build_stale_seconds: 240
 tui_refresh_seconds: 15
 work_hours_enabled: false
 work_start_hour: 8
