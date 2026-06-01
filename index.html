@@ -710,14 +710,13 @@
       jiraReviewEl.innerHTML = '';
     }
 
-    // Next task mode: show when nothing left to pick up —
-    // either no Open/Implement at all, or every Implement issue already has an open PR
+    // Next task mode: show when nothing active in Implement —
+    // either no Implement issues, or every Implement issue already has an open PR
     const nextTasks = jira.next_tasks ?? [];
     const myPrKeys = new Set(myPRs.map(p => p.jira_key).filter(Boolean));
     const implementAllInReview = cols.implement.length > 0
       && cols.implement.every(i => myPrKeys.has(i.key));
-    const nextMode = cols.open.length === 0
-      && (cols.implement.length === 0 || implementAllInReview);
+    const nextMode = cols.implement.length === 0 || implementAllInReview;
     document.getElementById('cnt-next').textContent = nextTasks.length;
     document.getElementById('cards-next').innerHTML = nextTasks.length
       ? nextTasks.map(jiraCard).join('')
