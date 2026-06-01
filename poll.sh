@@ -337,7 +337,8 @@ JQ_PROJ='[.issues[]? | {
     type:       .fields.issuetype.name,
     priority:   .fields.priority.name,
     updated:    .fields.updated,
-    teknisk_qa: ((.fields.labels // []) | any(. == "teknisk_QA"))
+    teknisk_qa: ((.fields.labels // []) | any(. == "teknisk_QA")),
+    unassigned: (.fields.assignee == null)
 }]'
 
 JQ_PROJ_TQA='[.issues[]? | {
@@ -358,7 +359,7 @@ MINE_JSON=$(curl -s \
     --get \
     --data-urlencode "jql=$JQL_MINE" \
     --data-urlencode "maxResults=50" \
-    --data-urlencode "fields=summary,status,issuetype,priority,updated,labels" \
+    --data-urlencode "fields=summary,status,issuetype,priority,updated,labels,assignee" \
     | jq "$JQ_PROJ" 2>/dev/null || echo "[]")
 
 IMPL_JSON=$(curl -s \
@@ -367,7 +368,7 @@ IMPL_JSON=$(curl -s \
     --get \
     --data-urlencode "jql=$JQL_IMPL" \
     --data-urlencode "maxResults=50" \
-    --data-urlencode "fields=summary,status,issuetype,priority,updated,labels" \
+    --data-urlencode "fields=summary,status,issuetype,priority,updated,labels,assignee" \
     | jq "$JQ_PROJ" 2>/dev/null || echo "[]")
 
 TQA_JSON=$(curl -s \
@@ -404,7 +405,11 @@ NEXT_JSON=${NEXT_JSON:-[]}
 ISSUES_JSON=$(jq -n --argjson a "$MINE_JSON" --argjson b "$IMPL_JSON" '
   ($a | map(select(.teknisk_qa != true))) as $mine |
   ($mine | map(.key)) as $mine_keys |
-  $mine + ($b | map(select(.key as $k | ($mine_keys | index($k)) == null)))
+  $mine + ($b | map(select(
+    .key as $k |
+    ($mine_keys | index($k)) == null and
+    (.teknisk_qa != true or .unassigned == true)
+  )))
 ')
 
 IMPL_KEYS=$(echo "$IMPL_JSON" | jq '[.[].key]')
