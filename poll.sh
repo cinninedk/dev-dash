@@ -96,6 +96,18 @@ qg_label() {
     esac
 }
 
+# Single curl: returns count of open (unresolved) comments for a PR
+get_unresolved_comments() {
+    local project="$1" slug="$2" pr_id="$3"
+    local body
+    body=$(curl -sf \
+        -H "Authorization: Bearer $PASSWORD" \
+        "${STASH_URL}/rest/api/1.0/projects/${project}/repos/${slug}/pull-requests/${pr_id}/comments?state=OPEN&limit=0" \
+        2>/dev/null) || true
+    [ -z "$body" ] && body='{}'
+    echo "$body" | jq -r '.size // 0' 2>/dev/null || echo 0
+}
+
 # ── Per-poll fetch logic ──
 #
 # $1 — raw Bitbucket JSON
@@ -124,7 +136,7 @@ process_prs_to_json() {
         needs_work=$(echo "$pr"     | jq -r '[.reviewers[]? | select(.status == "NEEDS_WORK")] | length')
         reviewer_count=$(echo "$pr" | jq -r '.reviewers | length')
         tasks=$(echo "$pr"          | jq -r '.properties.openTaskCount // 0')
-        comments=$(echo "$pr"       | jq -r '.properties.commentCount // 0')
+        comments=$(get_unresolved_comments "$project" "$slug" "$id")
         merge_outcome=$(echo "$pr"  | jq -r '.properties.mergeResult.outcome // "CLEAN"')
 
         # ── Cache check ──

@@ -380,8 +380,8 @@ def render_pr_row(win, y: int, pr: dict, show_author: bool, max_x: int, stash_ur
     safe_addstr(win, dy, dx, f"bugs:{bugs}",     ca(C_RED    if bugs  > 0 else C_DIM)); dx += len(f"bugs:{bugs}")     + 2
     safe_addstr(win, dy, dx, f"smells:{smells}", ca(C_YELLOW if smells> 0 else C_DIM)); dx += len(f"smells:{smells}") + 2
     safe_addstr(win, dy, dx, f"vulns:{vulns}",   ca(C_RED    if vulns > 0 else C_DIM)); dx += len(f"vulns:{vulns}")   + 2
-    safe_addstr(win, dy, dx, f"hots:{hots}",     ca(C_YELLOW if hots  > 0 else C_DIM)); dx += len(f"hots:{hots}")     + 2
-    safe_addstr(win, dy, dx, f"{cmts} comments",  ca(C_BRIGHT if cmts  > 0 else C_DIM))
+    safe_addstr(win, dy, dx, f"hots:{hots}",          ca(C_YELLOW if hots  > 0 else C_DIM)); dx += len(f"hots:{hots}")          + 2
+    safe_addstr(win, dy, dx, f"open comments:{cmts}", ca(C_YELLOW if cmts  > 0 else C_DIM))
 
 
 def render_prs_section(win, title: str, prs: list, show_author: bool, stash_url: str = ""):

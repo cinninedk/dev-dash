@@ -218,6 +218,18 @@
     .b-qwarn { color: var(--yellow); border-color: var(--yellow); }
     .b-qna   { color: var(--dim);    border-color: var(--border); }
 
+    .copy-btn {
+      background: none;
+      border: 1px solid var(--border);
+      color: var(--dim);
+      cursor: pointer;
+      font-size: 11px;
+      font-family: inherit;
+      padding: 1px 6px;
+      letter-spacing: 0.3px;
+    }
+    .copy-btn:hover { color: var(--text); border-color: var(--amber); }
+
     @keyframes blink { 0%,100%{opacity:1} 50%{opacity:0.25} }
 
     .empty-msg { padding: 12px 14px; color: var(--dim); font-size: 17px; }
@@ -439,6 +451,24 @@
 
   // ── Utilities ──────────────────────────────────────────────────────────
 
+  async function copyReviewCmd(prId, btn) {
+    const orig = btn.textContent;
+    btn.textContent = '…';
+    btn.disabled = true;
+    try {
+      const resp = await fetch(`/api/comments?pr_id=${prId}`);
+      if (!resp.ok) throw new Error(await resp.text());
+      const text = await resp.text();
+      await navigator.clipboard.writeText(text);
+      btn.textContent = 'copied!';
+      setTimeout(() => { btn.textContent = orig; btn.disabled = false; }, 2000);
+    } catch (e) {
+      btn.textContent = 'error';
+      console.error('copy reviews:', e);
+      setTimeout(() => { btn.textContent = orig; btn.disabled = false; }, 3000);
+    }
+  }
+
   function esc(s) {
     return String(s ?? '')
       .replace(/&/g,'&amp;').replace(/</g,'&lt;')
@@ -501,7 +531,7 @@
 
   // ── Render helpers ──────────────────────────────────────────────────────
 
-  function prRow(pr, showAuthor, showBranch = false) {
+  function prRow(pr, showAuthor, showBranch = false, isMyPr = false) {
     const url = (pr.project && pr.slug)
       ? `${STASH}/projects/${esc(pr.project)}/repos/${esc(pr.slug)}/pull-requests/${pr.id}`
       : null;
@@ -541,7 +571,7 @@
     const sc = smells   > 0 ? 'var(--yellow)' : 'var(--dim)';
     const vc = vulns    > 0 ? 'var(--red)'    : 'var(--dim)';
     const hc = hotspots > 0 ? 'var(--yellow)' : 'var(--dim)';
-    const cc = comments > 0 ? 'var(--text)'   : 'var(--dim)';
+    const cc = comments > 0 ? 'var(--yellow)' : 'var(--dim)';
 
     return `
       <div class="pr-item">
@@ -562,7 +592,8 @@
           <span style="color:${sc}">smells:${smells}</span>
           <span style="color:${vc}">vulns:${vulns}</span>
           <span style="color:${hc}">hotspots:${hotspots}</span>
-          <span style="color:${cc}">${comments} cmt</span>
+          <span style="color:${cc}">open comments:${comments}</span>
+          ${isMyPr && comments > 0 ? `<button class="copy-btn" onclick="copyReviewCmd(${pr.id}, this)">copy reviews</button>` : ''}
         </div>
       </div>`;
   }
@@ -633,7 +664,7 @@
 
     // My PRs
     document.getElementById('my-prs-list').innerHTML = myPRs.length
-      ? myPRs.map(p => prRow(p, false, true)).join('')
+      ? myPRs.map(p => prRow(p, false, true, true)).join('')
       : '<div class="empty-msg">no open PRs</div>';
 
     // Reviewer PRs
@@ -674,9 +705,14 @@
       jiraReviewEl.innerHTML = '';
     }
 
-    // Next task mode: show when nothing assigned in Open/Implement
+    // Next task mode: show when nothing left to pick up —
+    // either no Open/Implement at all, or every Implement issue already has an open PR
     const nextTasks = jira.next_tasks ?? [];
-    const nextMode = cols.open.length === 0 && cols.implement.length === 0;
+    const myPrKeys = new Set(myPRs.map(p => p.jira_key).filter(Boolean));
+    const implementAllInReview = cols.implement.length > 0
+      && cols.implement.every(i => myPrKeys.has(i.key));
+    const nextMode = cols.open.length === 0
+      && (cols.implement.length === 0 || implementAllInReview);
     document.getElementById('cnt-next').textContent = nextTasks.length;
     document.getElementById('cards-next').innerHTML = nextTasks.length
       ? nextTasks.map(jiraCard).join('')
