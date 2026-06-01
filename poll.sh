@@ -327,8 +327,8 @@ JQL_IMPL="sprint in openSprints() AND project in ($JIRA_PROJECTS) AND status in 
 # Query 3: all sprint QA issues with teknisk_QA label (any assignee)
 JQL_TQA="sprint in openSprints() AND project in ($JIRA_PROJECTS) AND status = \"Quality Assurance\" AND labels = \"teknisk_QA\" ORDER BY updated DESC"
 
-# Query 4: next task candidates — unassigned or mine, stories in active sprint, not yet in QA/BV/Resolved
-JQL_NEXT="sprint in openSprints() AND project in ($JIRA_PROJECTS) AND issuetype = Story AND status not in (Resolved, \"Quality Assurance\", \"Business Validation\") AND assignee in (empty, currentUser()) ORDER BY updated DESC"
+# Query 4: next task candidates — unassigned stories in active sprint, not yet in QA/BV/Resolved
+JQL_NEXT="sprint in openSprints() AND project in ($JIRA_PROJECTS) AND issuetype = Story AND status not in (Resolved, \"Quality Assurance\", \"Business Validation\") AND assignee is EMPTY ORDER BY updated DESC"
 
 JQ_PROJ='[.issues[]? | {
     key:        .key,
