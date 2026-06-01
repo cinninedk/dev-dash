@@ -321,8 +321,8 @@ log "Fetching Jira issues..."
 # Query 1: issues currently assigned to me (Open/Reopened/Implement)
 JQL_MINE="sprint in openSprints() AND project in ($JIRA_PROJECTS) AND assignee = currentUser() AND status in (\"Open\",\"Reopened\",\"Implement\",\"Quality Assurance\",\"Business Validation\") ORDER BY updated DESC"
 
-# Query 2: issues I implemented (moved out of Implement), now in QA/BV/Resolved
-JQL_IMPL="sprint in openSprints() AND project in ($JIRA_PROJECTS) AND status in (\"Quality Assurance\",\"Business Validation\",\"Resolved\") AND status CHANGED FROM \"Implement\" BY currentUser() ORDER BY updated DESC"
+# Query 2: issues I implemented (moved Implement → QA), now in QA/BV/Resolved
+JQL_IMPL="sprint in openSprints() AND project in ($JIRA_PROJECTS) AND status in (\"Quality Assurance\",\"Business Validation\",\"Resolved\") AND status CHANGED FROM \"Implement\" TO \"Quality Assurance\" BY currentUser() ORDER BY updated DESC"
 
 # Query 3: all sprint QA issues with teknisk_QA label (any assignee)
 JQL_TQA="sprint in openSprints() AND project in ($JIRA_PROJECTS) AND status = \"Quality Assurance\" AND labels = \"teknisk_QA\" ORDER BY updated DESC"
@@ -405,11 +405,7 @@ NEXT_JSON=${NEXT_JSON:-[]}
 ISSUES_JSON=$(jq -n --argjson a "$MINE_JSON" --argjson b "$IMPL_JSON" '
   ($a | map(select(.teknisk_qa != true))) as $mine |
   ($mine | map(.key)) as $mine_keys |
-  $mine + ($b | map(select(
-    .key as $k |
-    ($mine_keys | index($k)) == null and
-    (.teknisk_qa != true or .unassigned == true)
-  )))
+  $mine + ($b | map(select(.key as $k | ($mine_keys | index($k)) == null)))
 ')
 
 IMPL_KEYS=$(echo "$IMPL_JSON" | jq '[.[].key]')
