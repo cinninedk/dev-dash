@@ -724,9 +724,9 @@
 
     // Column visibility: hide empty columns; NEXT TASK replaces OPEN+IMPLEMENT when unassigned
     const colVisibility = {
-      'col-open':     !nextMode && cols.open.length > 0,
-      'col-implement':!nextMode && cols.implement.length > 0,
-      'col-next':      nextMode,
+      'col-open':      cols.open.length > 0,
+      'col-implement': !nextMode && cols.implement.length > 0,
+      'col-next':       nextMode,
       'col-qa':        qaCount > 0,
       'col-bv':        cols.bv.length > 0,
       'col-resolved':  cols.resolved.length > 0,
