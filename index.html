@@ -700,7 +700,7 @@
 
     // FOR MY REVIEW: unassigned teknisk_QA issues I did not implement
     const implementedKeys = new Set(issues.map(i => i.key));
-    const tqaMine = tqaIssues.filter(i => !i.assigned_to_me && !i.implemented_by_me);
+    const tqaMine = tqaIssues.filter(i => i.unassigned && !i.implemented_by_me);
     const jiraReviewEl = document.getElementById('jira-review-list');
     if (tqaMine.length) {
       jiraReviewEl.innerHTML =
