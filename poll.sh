@@ -402,8 +402,9 @@ TQA_JSON=${TQA_JSON:-[]}
 NEXT_JSON=${NEXT_JSON:-[]}
 
 ISSUES_JSON=$(jq -n --argjson a "$MINE_JSON" --argjson b "$IMPL_JSON" '
-  ($a + ($b | map(select(.key as $k | ($a | map(.key) | index($k)) == null))))
-  | map(select(.teknisk_qa != true))
+  ($a | map(select(.teknisk_qa != true))) as $mine |
+  ($mine | map(.key)) as $mine_keys |
+  $mine + ($b | map(select(.key as $k | ($mine_keys | index($k)) == null)))
 ')
 
 IMPL_KEYS=$(echo "$IMPL_JSON" | jq '[.[].key]')
