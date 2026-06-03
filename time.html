@@ -35,7 +35,7 @@
     .back-link { color: var(--dim); text-decoration: none; font-size: 16px; }
     .back-link:hover { color: var(--bright); }
 
-    #content { max-width: 900px; }
+    #content { max-width: 1200px; }
 
     .tracker-item {
       background: var(--panel);
@@ -50,6 +50,23 @@
       justify-content: space-between;
       align-items: center;
       margin-bottom: 6px;
+      cursor: pointer;
+      user-select: none;
+    }
+
+    .tracker-header:hover {
+      background: rgba(212,135,10,0.04);
+      border-radius: 2px;
+    }
+
+    .tracker-toggle {
+      margin-right: 6px;
+      color: var(--dim);
+      font-size: 14px;
+    }
+
+    .tracker-segments.collapsed {
+      display: none;
     }
 
     .tracker-key {
@@ -136,6 +153,21 @@ function formatDateTime(isoStr) {
   });
 }
 
+function toggleSegments(headerEl) {
+  const itemEl = headerEl.closest('.tracker-item');
+  const segmentsEl = itemEl.querySelector('.tracker-segments');
+  if (!segmentsEl) return;
+
+  const toggleEl = headerEl.querySelector('.tracker-toggle');
+  if (segmentsEl.classList.contains('collapsed')) {
+    segmentsEl.classList.remove('collapsed');
+    if (toggleEl) toggleEl.textContent = '▾';
+  } else {
+    segmentsEl.classList.add('collapsed');
+    if (toggleEl) toggleEl.textContent = '▸';
+  }
+}
+
 async function loadAndRender() {
   try {
     const resp = await fetch('data/timetrack.json', {cache:'no-store'});
@@ -169,16 +201,20 @@ async function loadAndRender() {
         `)
         .join('');
 
+      const hasSegments = tracker.segments && tracker.segments.length > 0;
       return `
         <div class="tracker-item ${isIdle ? 'idle-tracker' : ''}">
-          <div class="tracker-header">
-            <div>
-              <div class="tracker-key">${isIdle ? '⏸ IDLE' : key}</div>
-              ${!isIdle ? `<div class="tracker-summary">${tracker.summary}</div>` : ''}
+          <div class="tracker-header" onclick="toggleSegments(this)">
+            <div style="display: flex; align-items: center; gap: 6px; flex: 1;">
+              ${hasSegments ? `<span class="tracker-toggle">▸</span>` : ''}
+              <div>
+                <div class="tracker-key">${isIdle ? '⏸ IDLE' : key}</div>
+                ${!isIdle ? `<div class="tracker-summary">${tracker.summary}</div>` : ''}
+              </div>
             </div>
             <div class="tracker-total">${formatTime(total)}</div>
           </div>
-          ${tracker.segments && tracker.segments.length > 0 ? `
+          ${hasSegments ? `
             <div class="tracker-segments">
               ${segmentsHtml}
             </div>
