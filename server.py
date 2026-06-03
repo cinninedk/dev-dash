@@ -30,6 +30,9 @@ def _cfg(key: str, default):
 
 PORT = _cfg("port", 666)
 TEST_MODE = "--test" in sys.argv
+_port_arg = next((sys.argv[i+1] for i, a in enumerate(sys.argv) if a == "--port" and i+1 < len(sys.argv)), None)
+if _port_arg:
+    PORT = int(_port_arg)
 DATA_DIR  = ROOT / ("data-test" if TEST_MODE else "data")
 ACTIVE    = DATA_DIR / ".active"
 TIMETRACK = DATA_DIR / "timetrack.json"
