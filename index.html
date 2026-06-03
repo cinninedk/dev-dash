@@ -734,10 +734,18 @@
     for (const [id, show] of Object.entries(colVisibility)) {
       document.getElementById(id).style.display = show ? '' : 'none';
     }
-    // Build grid template: NEXT TASK gets 2fr, all others 1fr
-    const gridParts = Object.entries(colVisibility)
-      .filter(([, show]) => show)
-      .map(([id]) => id === 'col-next' ? '2fr' : '1fr');
+    // Build grid template: NEXT TASK is leftmost (order:-1) and 2fr; all others 1fr
+    const nextEl = document.getElementById('col-next');
+    const visibleCols = Object.entries(colVisibility).filter(([, show]) => show).map(([id]) => id);
+    let gridParts;
+    if (nextMode) {
+      nextEl.style.order = '-1';
+      const rest = visibleCols.filter(id => id !== 'col-next');
+      gridParts = ['2fr', ...rest.map(() => '1fr')];
+    } else {
+      nextEl.style.order = '';
+      gridParts = visibleCols.map(() => '1fr');
+    }
     document.getElementById('kanban-cols').style.gridTemplateColumns = gridParts.join(' ');
 
 
