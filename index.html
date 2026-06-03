@@ -516,6 +516,10 @@
   // ── Tracking ──────────────────────────────────────────────────────────
 
   async function trackIssue(key, summary) {
+    if (ttData?.active?.key === key) {
+      trackStop();
+      return;
+    }
     try {
       const resp = await fetch(`/api/track`, {
         method: 'POST',
