@@ -319,10 +319,12 @@ jq -n \
 log "Fetching Jira issues..."
 
 # Query 1: issues currently assigned to me (Open/Reopened/Implement)
-JQL_MINE="sprint in openSprints() AND project in ($JIRA_PROJECTS) AND assignee = currentUser() AND status in (\"Open\",\"Reopened\",\"Implement\",\"Quality Assurance\",\"Business Validation\") ORDER BY updated DESC"
+# Include current sprint + previous sprint's QA/BV items
+JQL_MINE="(sprint in openSprints() OR (sprint in closedSprints() AND status in (\"Quality Assurance\",\"Business Validation\"))) AND project in ($JIRA_PROJECTS) AND assignee = currentUser() AND status in (\"Open\",\"Reopened\",\"Implement\",\"Quality Assurance\",\"Business Validation\") ORDER BY updated DESC"
 
 # Query 2: issues I implemented (moved Implement → QA), now in QA/BV/Resolved
-JQL_IMPL="sprint in openSprints() AND project in ($JIRA_PROJECTS) AND status in (\"Quality Assurance\",\"Business Validation\",\"Resolved\") AND status CHANGED FROM \"Implement\" TO \"Quality Assurance\" BY currentUser() ORDER BY updated DESC"
+# Include current sprint + previous sprint's QA/BV items
+JQL_IMPL="(sprint in openSprints() OR (sprint in closedSprints() AND status in (\"Quality Assurance\",\"Business Validation\"))) AND project in ($JIRA_PROJECTS) AND status in (\"Quality Assurance\",\"Business Validation\",\"Resolved\") AND status CHANGED FROM \"Implement\" TO \"Quality Assurance\" BY currentUser() ORDER BY updated DESC"
 
 # Query 3: all sprint QA issues with teknisk_QA label (any assignee)
 JQL_TQA="sprint in openSprints() AND project in ($JIRA_PROJECTS) AND status = \"Quality Assurance\" AND labels = \"teknisk_QA\" ORDER BY updated DESC"
