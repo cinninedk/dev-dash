@@ -1,0 +1,210 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Time Tracking — DEV DASHBOARD</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link href="https://fonts.googleapis.com/css2?family=Share+Tech+Mono&display=swap" rel="stylesheet">
+  <style>
+    :root {
+      --bg:     #0a0700;
+      --panel:  #100c00;
+      --border: #8a5500;
+      --dim:    #e0aa38;
+      --text:   #f5aa30;
+      --bright: #ffd455;
+      --green:  #6ed464;
+      --red:    #f05858;
+      --yellow: #f8c838;
+    }
+
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+
+    body {
+      background: var(--bg);
+      color: var(--text);
+      font-family: 'Share Tech Mono', monospace;
+      font-size: 18px;
+      padding: 20px;
+      line-height: 1.6;
+    }
+
+    header { margin-bottom: 25px; }
+    h1 { color: var(--bright); font-size: 28px; letter-spacing: 2px; margin-bottom: 8px; }
+    .back-link { color: var(--dim); text-decoration: none; font-size: 16px; }
+    .back-link:hover { color: var(--bright); }
+
+    #content { max-width: 900px; }
+
+    .tracker-item {
+      background: var(--panel);
+      border: 1px solid var(--border);
+      padding: 12px 16px;
+      margin-bottom: 12px;
+      border-radius: 2px;
+    }
+
+    .tracker-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      margin-bottom: 6px;
+    }
+
+    .tracker-key {
+      color: var(--bright);
+      font-size: 20px;
+      font-weight: bold;
+    }
+
+    .tracker-summary {
+      color: var(--text);
+      font-size: 18px;
+      margin-bottom: 6px;
+    }
+
+    .tracker-total {
+      color: var(--green);
+      font-size: 22px;
+      font-weight: bold;
+    }
+
+    .tracker-segments {
+      margin-top: 8px;
+      padding-top: 8px;
+      border-top: 1px solid rgba(138,85,0,0.3);
+      font-size: 16px;
+      color: var(--dim);
+    }
+
+    .segment {
+      display: flex;
+      justify-content: space-between;
+      padding: 3px 0;
+    }
+
+    .segment-time { color: var(--text); }
+
+    .grand-total {
+      background: rgba(110,212,100,0.05);
+      border: 1px solid var(--green);
+      padding: 16px;
+      margin-top: 20px;
+      font-size: 24px;
+      color: var(--green);
+      text-align: right;
+      font-weight: bold;
+    }
+
+    .empty { color: var(--dim); padding: 20px; text-align: center; }
+
+    .idle-tracker { opacity: 0.7; }
+  </style>
+</head>
+<body>
+
+<header>
+  <h1>⏱ TIME TRACKING</h1>
+  <a class="back-link" href="index.html">← Back to Dashboard</a>
+</header>
+
+<div id="content">
+  <div id="trackers"></div>
+  <div id="grand-total" class="grand-total" style="display:none;">TOTAL: <span id="total-hours">0h 0m</span></div>
+</div>
+
+<script>
+const IDLE_KEY = '__IDLE__';
+
+function formatTime(seconds) {
+  const h = Math.floor(seconds / 3600);
+  const m = Math.floor((seconds % 3600) / 60);
+  const s = seconds % 60;
+  return `${h}h ${m}m ${s}s`;
+}
+
+function formatDateTime(isoStr) {
+  if (!isoStr) return '–';
+  const d = new Date(isoStr);
+  return d.toLocaleString('da-DK', {
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+    hour: '2-digit',
+    minute: '2-digit'
+  });
+}
+
+async function loadAndRender() {
+  try {
+    const resp = await fetch('data/timetrack.json', {cache:'no-store'});
+    if (!resp.ok) throw new Error('No tracking data yet');
+    const data = await resp.json();
+
+    const trackersEl = document.getElementById('trackers');
+    const trackers = data.trackers || {};
+    const keys = Object.keys(trackers).filter(k => k !== IDLE_KEY).sort();
+    if (data.trackers[IDLE_KEY]) keys.push(IDLE_KEY);
+
+    if (keys.length === 0) {
+      trackersEl.innerHTML = '<div class="empty">No tracking data yet. Start tracking from the dashboard!</div>';
+      document.getElementById('grand-total').style.display = 'none';
+      return;
+    }
+
+    let grandTotal = 0;
+    const html = keys.map(key => {
+      const tracker = trackers[key];
+      const total = tracker.total_seconds || 0;
+      grandTotal += total;
+      const isIdle = key === IDLE_KEY;
+
+      const segmentsHtml = (tracker.segments || [])
+        .map(seg => `
+          <div class="segment">
+            <span>${formatDateTime(seg.started_at)} → ${formatDateTime(seg.ended_at)}</span>
+            <span class="segment-time">${formatTime(seg.seconds)}</span>
+          </div>
+        `)
+        .join('');
+
+      return `
+        <div class="tracker-item ${isIdle ? 'idle-tracker' : ''}">
+          <div class="tracker-header">
+            <div>
+              <div class="tracker-key">${isIdle ? '⏸ IDLE' : key}</div>
+              ${!isIdle ? `<div class="tracker-summary">${tracker.summary}</div>` : ''}
+            </div>
+            <div class="tracker-total">${formatTime(total)}</div>
+          </div>
+          ${tracker.segments && tracker.segments.length > 0 ? `
+            <div class="tracker-segments">
+              ${segmentsHtml}
+            </div>
+          ` : ''}
+        </div>
+      `;
+    }).join('');
+
+    trackersEl.innerHTML = html;
+
+    const grandTotalEl = document.getElementById('grand-total');
+    const h = Math.floor(grandTotal / 3600);
+    const m = Math.floor((grandTotal % 3600) / 60);
+    document.getElementById('total-hours').textContent = `${h}h ${m}m`;
+    grandTotalEl.style.display = 'block';
+
+  } catch (e) {
+    document.getElementById('trackers').innerHTML = `<div class="empty">⚠ ${e.message}</div>`;
+    document.getElementById('grand-total').style.display = 'none';
+    console.error('load time tracking:', e);
+  }
+}
+
+loadAndRender();
+setInterval(loadAndRender, 5000);
+</script>
+
+</body>
+</html>

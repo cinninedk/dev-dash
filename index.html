@@ -218,6 +218,56 @@
     .b-qwarn { color: var(--yellow); border-color: var(--yellow); }
     .b-qna   { color: var(--dim);    border-color: var(--border); }
 
+    /* ── TRACKING UI ── */
+    .track-btn {
+      background: none;
+      border: 1px solid var(--border);
+      color: var(--dim);
+      cursor: pointer;
+      font-family: inherit;
+      font-size: 14px;
+      padding: 2px 5px;
+      letter-spacing: 0.5px;
+      margin-top: 3px;
+    }
+    .track-btn:hover { color: var(--bright); border-color: var(--bright); }
+    .track-btn.active { color: var(--bright); border-color: var(--bright); animation: pulse-amber 1s ease-in-out infinite; }
+
+    @keyframes pulse-amber {
+      0%, 100% { opacity: 1; }
+      50% { opacity: 0.3; }
+    }
+
+    #tracking-box {
+      display: flex;
+      flex-direction: column;
+      border-left: 1px solid var(--border);
+      background: var(--panel);
+      padding: 8px;
+      min-width: 150px;
+      max-width: 180px;
+    }
+
+    .tracking-header { color: var(--dim); font-size: 14px; letter-spacing: 1px; margin-bottom: 6px; }
+    .tracking-issue { color: var(--bright); font-size: 16px; margin-bottom: 3px; }
+    .tracking-elapsed { color: var(--text); font-size: 18px; margin: 4px 0; font-weight: bold; }
+    .tracking-buttons { display: flex; gap: 4px; flex-wrap: wrap; margin-top: 6px; }
+    .tracking-btn {
+      background: none;
+      border: 1px solid var(--border);
+      color: var(--dim);
+      cursor: pointer;
+      font-family: inherit;
+      font-size: 13px;
+      padding: 3px 6px;
+      letter-spacing: 0.5px;
+      flex: 1;
+      min-width: 60px;
+    }
+    .tracking-btn:hover { color: var(--bright); border-color: var(--bright); }
+    .tracking-idle { color: var(--yellow); }
+    .tracking-stop { color: var(--red); }
+
     .copy-btn {
       background: none;
       border: 1px solid var(--border);
@@ -392,30 +442,41 @@
 
     <section id="jira-kanban">
       <div class="section-title">── JIRA KANBAN</div>
-      <div id="kanban-cols">
-        <div class="kanban-col" id="col-open">
-          <div class="col-header">OPEN <span class="col-count" id="cnt-open">0</span></div>
-          <div id="cards-open"></div>
+      <div style="display: flex; flex: 1; overflow: hidden; min-height: 0;">
+        <div id="kanban-cols" style="flex: 1;">
+          <div class="kanban-col" id="col-open">
+            <div class="col-header">OPEN <span class="col-count" id="cnt-open">0</span></div>
+            <div id="cards-open"></div>
+          </div>
+          <div class="kanban-col" id="col-implement">
+            <div class="col-header">IMPLEMENT <span class="col-count" id="cnt-implement">0</span></div>
+            <div id="cards-implement"></div>
+          </div>
+          <div class="kanban-col" id="col-next" style="display:none">
+            <div class="col-header">NEXT TASK <span class="col-count" id="cnt-next">0</span></div>
+            <div id="cards-next"></div>
+          </div>
+          <div class="kanban-col" id="col-qa">
+            <div class="col-header">QA <span class="col-count" id="cnt-qa">0</span></div>
+            <div id="cards-qa"></div>
+          </div>
+          <div class="kanban-col" id="col-bv">
+            <div class="col-header">BV <span class="col-count" id="cnt-bv">0</span></div>
+            <div id="cards-bv"></div>
+          </div>
+          <div class="kanban-col" id="col-resolved">
+            <div class="col-header">RESOLVED <span class="col-count" id="cnt-resolved">0</span></div>
+            <div id="cards-resolved"></div>
+          </div>
         </div>
-        <div class="kanban-col" id="col-implement">
-          <div class="col-header">IMPLEMENT <span class="col-count" id="cnt-implement">0</span></div>
-          <div id="cards-implement"></div>
-        </div>
-        <div class="kanban-col" id="col-next" style="display:none">
-          <div class="col-header">NEXT TASK <span class="col-count" id="cnt-next">0</span></div>
-          <div id="cards-next"></div>
-        </div>
-        <div class="kanban-col" id="col-qa">
-          <div class="col-header">QA <span class="col-count" id="cnt-qa">0</span></div>
-          <div id="cards-qa"></div>
-        </div>
-        <div class="kanban-col" id="col-bv">
-          <div class="col-header">BV <span class="col-count" id="cnt-bv">0</span></div>
-          <div id="cards-bv"></div>
-        </div>
-        <div class="kanban-col" id="col-resolved">
-          <div class="col-header">RESOLVED <span class="col-count" id="cnt-resolved">0</span></div>
-          <div id="cards-resolved"></div>
+        <div id="tracking-box">
+          <div class="tracking-header">TRACKING</div>
+          <div class="tracking-issue" id="tracking-issue">–</div>
+          <div class="tracking-elapsed" id="tracking-elapsed">0:00</div>
+          <div class="tracking-buttons">
+            <button class="tracking-btn tracking-idle" onclick="trackIdle()">Idle</button>
+            <button class="tracking-btn tracking-stop" onclick="trackStop()">Stop</button>
+          </div>
         </div>
       </div>
     </section>
@@ -442,12 +503,136 @@
 
   let bbData        = null;
   let jiraData      = null;
+  let ttData        = null;  // timetrack.json
+  let prevIssueStatuses = {};  // for detecting QA transitions
   let nextAt        = null;
   let refreshTimer  = null;
+  let ttTimer       = null;  // for elapsed time tick
   const FETCH_BUFFER_MS = 2_000;  // ms after next_poll before fetching
   let workHoursEnabled = true;
   let workStartHour    = 8;
   let workEndHour      = 18;
+
+  // ── Tracking ──────────────────────────────────────────────────────────
+
+  async function trackIssue(key, summary) {
+    try {
+      const resp = await fetch(`/api/track`, {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({action: 'start', key, summary})
+      });
+      if (!resp.ok) throw new Error(await resp.text());
+      ttData = await resp.json();
+      renderTrackingBox();
+    } catch (e) {
+      console.error('track issue:', e);
+    }
+  }
+
+  async function trackIdle() {
+    try {
+      const resp = await fetch(`/api/track`, {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({action: 'idle'})
+      });
+      if (!resp.ok) throw new Error(await resp.text());
+      ttData = await resp.json();
+      renderTrackingBox();
+    } catch (e) {
+      console.error('track idle:', e);
+    }
+  }
+
+  async function trackStop() {
+    try {
+      const resp = await fetch(`/api/track`, {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({action: 'stop'})
+      });
+      if (!resp.ok) throw new Error(await resp.text());
+      ttData = await resp.json();
+      renderTrackingBox();
+    } catch (e) {
+      console.error('track stop:', e);
+    }
+  }
+
+  function formatElapsed(seconds) {
+    const h = Math.floor(seconds / 3600);
+    const m = Math.floor((seconds % 3600) / 60);
+    const s = seconds % 60;
+    return `${h > 0 ? h + 'h ' : ''}${m}m ${s}s`;
+  }
+
+  function computeElapsed() {
+    if (!ttData?.active) return 0;
+    const started = new Date(ttData.active.started_at);
+    return Math.floor((Date.now() - started.getTime()) / 1000);
+  }
+
+  function renderTrackingBox() {
+    const active = ttData?.active;
+    const issueEl = document.getElementById('tracking-issue');
+    const elapsedEl = document.getElementById('tracking-elapsed');
+    const trackBtns = document.querySelectorAll('.track-btn');
+    trackBtns.forEach(btn => btn.classList.remove('active'));
+    if (active) {
+      issueEl.textContent = active.key === '__IDLE__' ? 'Idle' : active.key;
+      const elapsed = computeElapsed();
+      elapsedEl.textContent = formatElapsed(elapsed);
+      if (active.key !== '__IDLE__') {
+        const activeBtn = document.querySelector(`.track-btn[onclick*="${esc(active.key)}"]`);
+        if (activeBtn) activeBtn.classList.add('active');
+      }
+    } else {
+      issueEl.textContent = '–';
+      elapsedEl.textContent = '0:00';
+    }
+  }
+
+  function startTrackingTick() {
+    if (ttTimer) clearInterval(ttTimer);
+    ttTimer = setInterval(() => {
+      if (ttData?.active) {
+        const elapsed = computeElapsed();
+        document.getElementById('tracking-elapsed').textContent = formatElapsed(elapsed);
+      }
+    }, 1000);
+  }
+
+  async function loadTimetrack() {
+    try {
+      const resp = await fetch(`data/timetrack.json`, {cache:'no-store'});
+      if (!resp.ok) {
+        ttData = {active: null, trackers: {}, updated: null};
+        return;
+      }
+      ttData = await resp.json();
+      prevIssueStatuses = {};
+      if (jiraData?.issues) {
+        jiraData.issues.forEach(i => {
+          prevIssueStatuses[i.key] = i.status;
+        });
+      }
+    } catch (e) {
+      console.error('load timetrack:', e);
+      ttData = {active: null, trackers: {}, updated: null};
+    }
+  }
+
+  function detectAutoIdle() {
+    if (!ttData?.active || ttData.active.key === '__IDLE__') return;
+    const activeKey = ttData.active.key;
+    const issue = jiraData?.issues?.find(i => i.key === activeKey);
+    if (!issue) return;
+    const prevStatus = prevIssueStatuses[activeKey];
+    if (prevStatus && prevStatus !== 'QUALITY ASSURANCE' && issue.status === 'QUALITY ASSURANCE') {
+      trackIdle();
+    }
+  }
 
   // ── Utilities ──────────────────────────────────────────────────────────
 
@@ -632,14 +817,16 @@
     const keyHtml = url
       ? `<a href="${url}" target="_blank" rel="noopener" style="color:${keyColor};text-decoration:none">${esc(issue.key)}</a>`
       : `<span style="color:${keyColor}">${esc(issue.key)}</span>`;
+    const isTracking = ttData?.active?.key === issue.key;
     return `
-      <div class="jira-card">
+      <div class="jira-card" data-issue-key="${esc(issue.key)}">
         <div class="card-key">${keyHtml}</div>
         <div class="card-summary">${esc(issue.summary)}</div>
         <div class="card-meta">
           <span class="type-badge ${typeClass(issue.type)}">${esc(issue.type ?? '?')}</span>
           ${issue.teknisk_qa && !hideTqaBadge ? '<span class="tqa-badge">TEKN·QA</span>' : ''}
         </div>
+        <button class="track-btn ${isTracking ? 'active' : ''}" onclick="trackIssue('${esc(issue.key)}', ${JSON.stringify(esc(issue.summary))})">${isTracking ? '[TRACKING]' : '[Track]'}</button>
       </div>`;
   }
 
@@ -773,7 +960,11 @@
       if (bb.work_hours_enabled != null) workHoursEnabled = bb.work_hours_enabled;
       if (bb.work_start_hour    != null) workStartHour    = bb.work_start_hour;
       if (bb.work_end_hour      != null) workEndHour      = bb.work_end_hour;
+      await loadTimetrack();
+      detectAutoIdle();
       renderAll(bb, jira);
+      renderTrackingBox();
+      startTrackingTick();
     } catch {
       document.getElementById('poll-status').textContent = '⚠ no data – run ./poll.sh';
       ['my-prs-list','reviewer-prs-list'].forEach(id => {
