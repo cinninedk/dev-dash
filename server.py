@@ -10,6 +10,7 @@ import http.server
 import json
 import os
 import pathlib
+import sys
 import urllib.error
 import urllib.parse
 import urllib.request
@@ -28,9 +29,11 @@ def _cfg(key: str, default):
     return default
 
 PORT = _cfg("port", 666)
-ACTIVE = ROOT / "data" / ".active"
-TIMETRACK = ROOT / "data" / "timetrack.json"
-IDLE_KEY = "__IDLE__"
+TEST_MODE = "--test" in sys.argv
+DATA_DIR  = ROOT / ("data-test" if TEST_MODE else "data")
+ACTIVE    = DATA_DIR / ".active"
+TIMETRACK = DATA_DIR / "timetrack.json"
+IDLE_KEY  = "__IDLE__"
 
 
 def _now_iso() -> str:
@@ -161,7 +164,7 @@ def _fetch_pr_comments(pr_id: str) -> str:
     stash_url, token = _load_secrets()
     headers = {"Authorization": f"Bearer {token}"}
 
-    bb = json.loads((ROOT / "data" / "bitbucket.json").read_text())
+    bb = json.loads((DATA_DIR / "bitbucket.json").read_text())
     all_prs = bb.get("my_prs", []) + bb.get("reviewer_prs", [])
     pr = next((p for p in all_prs if str(p.get("id")) == str(pr_id)), None)
     if pr is None:
@@ -227,11 +230,28 @@ class Handler(http.server.SimpleHTTPRequestHandler):
             self._handle_comments()
             return
         if self.path.startswith("/data/") and self.path.endswith(".json"):
+            if TEST_MODE:
+                self._serve_test_data()
+                return
             try:
                 ACTIVE.touch()
             except OSError:
                 pass
         super().do_GET()
+
+    def _serve_test_data(self):
+        filename = pathlib.Path(urllib.parse.urlparse(self.path).path).name
+        file_path = DATA_DIR / filename
+        try:
+            content = file_path.read_bytes()
+        except FileNotFoundError:
+            self._respond(404, f"Test data not found: {filename}")
+            return
+        self.send_response(200)
+        self.send_header("Content-Type", "application/json; charset=utf-8")
+        self.send_header("Content-Length", str(len(content)))
+        self.end_headers()
+        self.wfile.write(content)
 
     def _handle_comments(self):
         qs = urllib.parse.parse_qs(urllib.parse.urlparse(self.path).query)
@@ -401,6 +421,9 @@ class Handler(http.server.SimpleHTTPRequestHandler):
 
 if __name__ == "__main__":
     os.chdir(ROOT)
+    DATA_DIR.mkdir(exist_ok=True)
+    if TEST_MODE:
+        print(f"TEST MODE — data from: {DATA_DIR}", flush=True)
     _migrate_timetrack()
     with http.server.HTTPServer(("", PORT), Handler) as srv:
         print(f"dashboard server listening on :{PORT}", flush=True)

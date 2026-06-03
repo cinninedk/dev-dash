@@ -1,0 +1,162 @@
+{
+  "active": null,
+  "trackers": {
+    "STILLOGIN-698": {
+      "summary": "Migrate legacy login handler to new auth pipeline",
+      "total_seconds": 45000,
+      "segments": [
+        {
+          "id": "aaa0001bb001",
+          "started_at": "2026-05-25T09:00:00+02:00",
+          "ended_at": "2026-05-25T12:00:00+02:00",
+          "seconds": 10800
+        },
+        {
+          "id": "aaa0002bb002",
+          "started_at": "2026-05-25T13:00:00+02:00",
+          "ended_at": "2026-05-25T17:00:00+02:00",
+          "seconds": 14400
+        },
+        {
+          "id": "aaa0003bb003",
+          "started_at": "2026-05-26T09:00:00+02:00",
+          "ended_at": "2026-05-26T11:30:00+02:00",
+          "seconds": 9000
+        },
+        {
+          "id": "aaa0004bb004",
+          "started_at": "2026-05-26T13:30:00+02:00",
+          "ended_at": "2026-05-26T16:30:00+02:00",
+          "seconds": 10800
+        }
+      ]
+    },
+    "STILLOGIN-689": {
+      "summary": "Update OIDC provider test harness with mock server",
+      "total_seconds": 25200,
+      "segments": [
+        {
+          "id": "bbb0001cc001",
+          "started_at": "2026-05-27T09:00:00+02:00",
+          "ended_at": "2026-05-27T12:30:00+02:00",
+          "seconds": 12600
+        },
+        {
+          "id": "bbb0002cc002",
+          "started_at": "2026-05-27T13:30:00+02:00",
+          "ended_at": "2026-05-27T17:00:00+02:00",
+          "seconds": 12600
+        }
+      ]
+    },
+    "STILLOGIN-677": {
+      "summary": "Remove deprecated BasicAuth fallback endpoint",
+      "total_seconds": 7200,
+      "segments": [
+        {
+          "id": "ccc0001dd001",
+          "started_at": "2026-05-28T11:00:00+02:00",
+          "ended_at": "2026-05-28T13:00:00+02:00",
+          "seconds": 7200
+        }
+      ]
+    },
+    "STILLOGIN-712": {
+      "summary": "Implement SAML token refresh for long-lived sessions",
+      "total_seconds": 50400,
+      "segments": [
+        {
+          "id": "ddd0001ee001",
+          "started_at": "2026-05-29T09:00:00+02:00",
+          "ended_at": "2026-05-29T12:30:00+02:00",
+          "seconds": 12600
+        },
+        {
+          "id": "ddd0002ee002",
+          "started_at": "2026-05-29T13:30:00+02:00",
+          "ended_at": "2026-05-29T16:00:00+02:00",
+          "seconds": 9000
+        },
+        {
+          "id": "ddd0003ee003",
+          "started_at": "2026-06-01T09:00:00+02:00",
+          "ended_at": "2026-06-01T12:00:00+02:00",
+          "seconds": 10800
+        },
+        {
+          "id": "ddd0004ee004",
+          "started_at": "2026-06-02T10:00:00+02:00",
+          "ended_at": "2026-06-02T12:30:00+02:00",
+          "seconds": 9000
+        },
+        {
+          "id": "ddd0005ee005",
+          "started_at": "2026-06-02T14:00:00+02:00",
+          "ended_at": "2026-06-02T16:30:00+02:00",
+          "seconds": 9000
+        }
+      ]
+    },
+    "STILLOGIN-718": {
+      "summary": "Fix NullPointerException in session cleanup scheduler",
+      "total_seconds": 5400,
+      "segments": [
+        {
+          "id": "eee0001ff001",
+          "started_at": "2026-06-02T09:00:00+02:00",
+          "ended_at": "2026-06-02T10:30:00+02:00",
+          "seconds": 5400
+        }
+      ]
+    },
+    "__IDLE__": {
+      "summary": "Idle",
+      "total_seconds": 28800,
+      "segments": [
+        {
+          "id": "fff0001aa001",
+          "started_at": "2026-05-25T12:00:00+02:00",
+          "ended_at": "2026-05-25T13:00:00+02:00",
+          "seconds": 3600
+        },
+        {
+          "id": "fff0002aa002",
+          "started_at": "2026-05-26T12:00:00+02:00",
+          "ended_at": "2026-05-26T13:30:00+02:00",
+          "seconds": 5400
+        },
+        {
+          "id": "fff0003aa003",
+          "started_at": "2026-05-27T12:30:00+02:00",
+          "ended_at": "2026-05-27T13:30:00+02:00",
+          "seconds": 3600
+        },
+        {
+          "id": "fff0004aa004",
+          "started_at": "2026-05-28T13:00:00+02:00",
+          "ended_at": "2026-05-28T14:00:00+02:00",
+          "seconds": 3600
+        },
+        {
+          "id": "fff0005aa005",
+          "started_at": "2026-05-29T12:30:00+02:00",
+          "ended_at": "2026-05-29T13:30:00+02:00",
+          "seconds": 3600
+        },
+        {
+          "id": "fff0006aa006",
+          "started_at": "2026-06-01T12:00:00+02:00",
+          "ended_at": "2026-06-01T13:00:00+02:00",
+          "seconds": 3600
+        },
+        {
+          "id": "fff0007aa007",
+          "started_at": "2026-06-02T12:30:00+02:00",
+          "ended_at": "2026-06-02T14:00:00+02:00",
+          "seconds": 5400
+        }
+      ]
+    }
+  },
+  "updated": "2026-06-03T22:41:44+02:00"
+}
