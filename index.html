@@ -248,7 +248,7 @@
     }
 
     .tracking-header { color: var(--dim); font-size: 14px; letter-spacing: 1px; margin-bottom: 6px; }
-    .tracking-issue { color: var(--bright); font-size: 16px; margin-bottom: 3px; }
+    .tracking-issue { color: var(--bright); font-size: 18px; margin-bottom: 3px; }
     .tracking-elapsed { color: var(--text); font-size: 18px; margin: 4px 0; font-weight: bold; }
     .tracking-buttons { display: flex; gap: 4px; flex-wrap: wrap; margin-top: 6px; }
     .tracking-btn {
@@ -472,7 +472,7 @@
           <div class="tracking-header">TRACKING</div>
           <div class="tracking-issue" id="tracking-issue">–</div>
           <div class="tracking-elapsed" id="tracking-elapsed">0:00</div>
-          <div id="tracking-summary" style="font-size: 14px; margin: 6px 0; flex: 1; overflow-y: auto;"></div>
+          <div id="tracking-summary" style="font-size: 16px; margin: 6px 0; flex: 1; overflow-y: auto;"></div>
           <div class="tracking-buttons">
             <button class="tracking-btn tracking-idle" onclick="trackIdle()">Idle</button>
             <button class="tracking-btn tracking-stop" onclick="trackStop()">Stop</button>
@@ -624,15 +624,15 @@
       .filter(([k]) => k !== '__IDLE__')
       .map(([key, tracker]) => {
         const time = formatElapsed(tracker.total_seconds);
-        return `<div style="font-size: 14px; color: var(--dim); padding: 2px 0;">${key}: <span style="color: var(--green);">${time}</span></div>`;
+        return `<div style="font-size: 16px; color: var(--dim); padding: 2px 0;">${key}: <span style="color: var(--green);">${time}</span></div>`;
       })
       .join('');
 
     const idleTime = trackers.__IDLE__ ? formatElapsed(trackers.__IDLE__.total_seconds) : null;
-    const idleHtml = idleTime ? `<div style="font-size: 14px; color: var(--dim); padding: 2px 0;">Idle: <span style="color: var(--yellow);">${idleTime}</span></div>` : '';
+    const idleHtml = idleTime ? `<div style="font-size: 16px; color: var(--dim); padding: 2px 0;">Idle: <span style="color: var(--yellow);">${idleTime}</span></div>` : '';
 
     const allTime = Object.values(trackers).reduce((sum, t) => sum + (t.total_seconds ?? 0), 0);
-    const totalHtml = allTime > 0 ? `<div style="margin-top: 6px; padding-top: 6px; border-top: 1px solid var(--border); font-size: 15px; color: var(--bright);">TOTAL: ${formatElapsed(allTime)}</div>` : '';
+    const totalHtml = allTime > 0 ? `<div style="margin-top: 6px; padding-top: 6px; border-top: 1px solid var(--border); font-size: 17px; color: var(--bright);">TOTAL: ${formatElapsed(allTime)}</div>` : '';
 
     const summaryEl = document.getElementById('tracking-summary');
     if (summaryEl) {
