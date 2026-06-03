@@ -172,6 +172,7 @@ const IDLE_KEY = '__IDLE__';
 let lastData = null;
 // openForm: null | {type:'edit', key, id} | {type:'add', key} | {type:'new'}
 let openForm = null;
+const collapsedKeys = new Set();
 
 // ── formatting ────────────────────────────────────────────────────────────
 function formatTime(seconds) {
@@ -348,11 +349,12 @@ function render() {
       ? segFormHtml({onsave:`saveAdd('${esc(key)}')`})
       : `<button class="add-entry-btn" onclick="openAdd('${esc(key)}')">+ add entry</button>`;
 
+    const isCollapsed = collapsedKeys.has(key);
     return `
-      <div class="tracker-item ${isIdle ? 'idle-tracker' : ''}">
+      <div class="tracker-item ${isIdle ? 'idle-tracker' : ''}" data-tracker-key="${esc(key)}">
         <div class="tracker-header" onclick="toggleSegments(this)">
           <div style="display:flex; align-items:center; gap:6px; flex:1;">
-            <span class="tracker-toggle">${hasSegments || addingHere ? '▾' : ''}</span>
+            <span class="tracker-toggle">${hasSegments || addingHere ? (isCollapsed ? '▸' : '▾') : ''}</span>
             <div>
               <div class="tracker-key">${isIdle ? '⏸ IDLE' : esc(key)}</div>
               ${!isIdle ? `<div class="tracker-summary">${esc(tracker.summary)}</div>` : ''}
@@ -360,7 +362,7 @@ function render() {
           </div>
           <div class="tracker-total">${formatTime(total)}</div>
         </div>
-        <div class="tracker-segments">
+        <div class="tracker-segments${isCollapsed ? ' collapsed' : ''}">
           ${segmentsHtml}
           ${addHtml}
         </div>
@@ -374,11 +376,13 @@ function render() {
 }
 
 function toggleSegments(headerEl) {
-  // don't collapse if a click bubbled up from a form/button
-  const segmentsEl = headerEl.closest('.tracker-item').querySelector('.tracker-segments');
+  const item = headerEl.closest('.tracker-item');
+  const segmentsEl = item.querySelector('.tracker-segments');
   if (!segmentsEl) return;
-  const toggleEl = headerEl.querySelector('.tracker-toggle');
+  const key = item.dataset.trackerKey;
   const collapsed = segmentsEl.classList.toggle('collapsed');
+  if (key) collapsed ? collapsedKeys.add(key) : collapsedKeys.delete(key);
+  const toggleEl = headerEl.querySelector('.tracker-toggle');
   if (toggleEl && toggleEl.textContent.trim()) toggleEl.textContent = collapsed ? '▸' : '▾';
 }
 
