@@ -3,7 +3,7 @@
 # Ctrl+C to stop.
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
-TEST_PORT=6660
+TEST_PORT=664
 
 echo "  starting test server on :$TEST_PORT  (data from data-test/)"
 echo "  Dashboard  →  http://localhost:$TEST_PORT"
