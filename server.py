@@ -5,6 +5,7 @@ Serves static files and handles /api/comments?pr_id=<N> by proxying
 to Bitbucket so the browser can fetch reviewer comments without needing
 the token directly.
 """
+import datetime
 import http.server
 import json
 import os
@@ -27,6 +28,59 @@ def _cfg(key: str, default):
 
 PORT = _cfg("port", 666)
 ACTIVE = ROOT / "data" / ".active"
+TIMETRACK = ROOT / "data" / "timetrack.json"
+IDLE_KEY = "__IDLE__"
+
+
+def _now_iso() -> str:
+    return datetime.datetime.now().astimezone().isoformat(timespec="seconds")
+
+
+def _read_timetrack() -> dict:
+    try:
+        return json.loads(TIMETRACK.read_text())
+    except Exception:
+        return {"active": None, "trackers": {}, "updated": None}
+
+
+def _write_timetrack(state: dict) -> None:
+    state["updated"] = _now_iso()
+    tmp = TIMETRACK.with_suffix(".tmp")
+    tmp.write_text(json.dumps(state, ensure_ascii=False, indent=2))
+    tmp.rename(TIMETRACK)
+
+
+def _close_active(state: dict) -> None:
+    """Close the running segment for the active tracker. Mutates state in-place."""
+    active = state.get("active")
+    if not active:
+        return
+    key = active["key"]
+    started_str = active["started_at"]
+    now = datetime.datetime.now().astimezone()
+    try:
+        started = datetime.datetime.fromisoformat(started_str)
+        seconds = max(0, int((now - started).total_seconds()))
+    except Exception:
+        seconds = 0
+    now_str = now.isoformat(timespec="seconds")
+    tracker = state["trackers"].setdefault(
+        key, {"summary": key, "total_seconds": 0, "segments": []}
+    )
+    tracker["segments"].append({"started_at": started_str, "ended_at": now_str, "seconds": seconds})
+    tracker["total_seconds"] = tracker.get("total_seconds", 0) + seconds
+    state["active"] = None
+
+
+def _start_tracker(state: dict, key: str, summary: str) -> None:
+    """Open a new segment for key. Caller must call _close_active first."""
+    now_str = _now_iso()
+    state["active"] = {"key": key, "started_at": now_str}
+    tracker = state["trackers"].setdefault(
+        key, {"summary": summary or key, "total_seconds": 0, "segments": []}
+    )
+    if summary:
+        tracker["summary"] = summary
 
 
 def _load_secrets():
@@ -134,10 +188,57 @@ class Handler(http.server.SimpleHTTPRequestHandler):
         self.end_headers()
         self.wfile.write(body)
 
+    def do_POST(self):
+        if self.path == "/api/track":
+            self._handle_track()
+            return
+        self._respond(404, "Not found")
+
+    def _handle_track(self):
+        length = int(self.headers.get("Content-Length", 0))
+        raw = self.rfile.read(length) if length else b"{}"
+        try:
+            req = json.loads(raw)
+        except Exception:
+            self._respond(400, "Invalid JSON")
+            return
+
+        action = req.get("action", "")
+        key = req.get("key", "")
+        summary = req.get("summary", "")
+
+        state = _read_timetrack()
+
+        if action == "start":
+            if not key:
+                self._respond(400, "Missing key")
+                return
+            _close_active(state)
+            _start_tracker(state, key, summary)
+        elif action == "idle":
+            _close_active(state)
+            _start_tracker(state, IDLE_KEY, "Idle")
+        elif action in ("stop", "stopall"):
+            _close_active(state)
+        else:
+            self._respond(400, f"Unknown action: {action!r}")
+            return
+
+        _write_timetrack(state)
+        self._respond_json(200, state)
+
     def _respond(self, code: int, msg: str):
         body = msg.encode()
         self.send_response(code)
         self.send_header("Content-Type", "text/plain; charset=utf-8")
+        self.send_header("Content-Length", str(len(body)))
+        self.end_headers()
+        self.wfile.write(body)
+
+    def _respond_json(self, code: int, data) -> None:
+        body = json.dumps(data, ensure_ascii=False).encode()
+        self.send_response(code)
+        self.send_header("Content-Type", "application/json; charset=utf-8")
         self.send_header("Content-Length", str(len(body)))
         self.end_headers()
         self.wfile.write(body)
