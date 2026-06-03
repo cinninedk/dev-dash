@@ -646,6 +646,14 @@
       if (ttData?.active) {
         const elapsed = computeElapsed();
         document.getElementById('tracking-elapsed').textContent = formatElapsed(elapsed);
+        const activeKey = ttData.active.key;
+        const tracker = ttData.trackers[activeKey];
+        if (tracker) {
+          const baseSeconds = tracker.total_seconds || 0;
+          const totalElapsed = formatElapsed(baseSeconds + elapsed);
+          const cardTimeEl = document.querySelector(`.card-time[data-issue-key="${activeKey}"]`);
+          if (cardTimeEl) cardTimeEl.textContent = totalElapsed;
+        }
       }
     }, 1000);
   }
@@ -865,13 +873,18 @@
       : `<span style="color:${keyColor}">${esc(issue.key)}</span>`;
     const isTracking = ttData?.active?.key === issue.key;
     const tracker = ttData?.trackers?.[issue.key];
-    const trackedTime = tracker ? formatElapsed(tracker.total_seconds) : '';
+    let trackedTime = '';
+    if (tracker) {
+      const baseSeconds = tracker.total_seconds || 0;
+      const elapsedAdd = isTracking ? computeElapsed() : 0;
+      trackedTime = formatElapsed(baseSeconds + elapsedAdd);
+    }
     return `
       <div class="jira-card" data-issue-key="${esc(issue.key)}">
         <div style="display: flex; gap: 6px; align-items: center;">
           <div class="card-key">${keyHtml}</div>
           <button class="track-btn ${isTracking ? 'active' : ''}" data-key="${esc(issue.key)}" data-summary="${esc(issue.summary)}" onclick="trackIssue(this.getAttribute('data-key'), this.getAttribute('data-summary'))">${isTracking ? 'TRACKING' : 'Track'}</button>
-          ${trackedTime ? `<span style="color: var(--green); font-size: 16px;">${trackedTime}</span>` : ''}
+          ${trackedTime ? `<span class="card-time" data-issue-key="${esc(issue.key)}" style="color: var(--green); font-size: 16px;">${trackedTime}</span>` : ''}
         </div>
         <div class="card-summary">${esc(issue.summary)}</div>
         <div class="card-meta">
