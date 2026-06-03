@@ -13,6 +13,7 @@ import pathlib
 import urllib.error
 import urllib.parse
 import urllib.request
+import uuid
 
 ROOT = pathlib.Path(__file__).parent
 
@@ -36,11 +37,73 @@ def _now_iso() -> str:
     return datetime.datetime.now().astimezone().isoformat(timespec="seconds")
 
 
+def _new_id() -> str:
+    return uuid.uuid4().hex[:12]
+
+
+def _parse_dt(s: str) -> datetime.datetime:
+    """Parse an ISO datetime to an aware local-tz datetime.
+
+    Accepts 'Z' (Python 3.9's fromisoformat does not) and naive strings
+    (assumed local). Raises ValueError on anything unparseable.
+    """
+    s = (s or "").strip()
+    if not s:
+        raise ValueError("empty datetime")
+    if s.endswith("Z"):
+        s = s[:-1] + "+00:00"
+    dt = datetime.datetime.fromisoformat(s)
+    if dt.tzinfo is None:
+        dt = dt.astimezone()  # assume local
+    return dt.astimezone()
+
+
+def _seg_seconds(started_at: str, ended_at: str) -> int:
+    delta = _parse_dt(ended_at) - _parse_dt(started_at)
+    return int(delta.total_seconds())
+
+
+def _recompute_total(tracker: dict) -> None:
+    tracker["total_seconds"] = sum(int(s.get("seconds", 0)) for s in tracker.get("segments", []))
+
+
 def _read_timetrack() -> dict:
     try:
         return json.loads(TIMETRACK.read_text())
     except Exception:
         return {"active": None, "trackers": {}, "updated": None}
+
+
+def _migrate_timetrack() -> None:
+    """One-time normalization: backfill segment ids and recompute totals.
+
+    The browser reads data/timetrack.json as a static file, so ids must
+    already be present in the file for edit/delete to address rows. Run
+    once at startup; only rewrites the file if something actually changed.
+    """
+    if not TIMETRACK.exists():
+        return
+    state = _read_timetrack()
+    changed = False
+    for tracker in state.get("trackers", {}).values():
+        for seg in tracker.get("segments", []):
+            if not seg.get("id"):
+                seg["id"] = _new_id()
+                changed = True
+            # keep seconds consistent with start/end if both present
+            try:
+                want = _seg_seconds(seg["started_at"], seg["ended_at"])
+                if seg.get("seconds") != want:
+                    seg["seconds"] = want
+                    changed = True
+            except Exception:
+                pass
+        before = tracker.get("total_seconds")
+        _recompute_total(tracker)
+        if tracker.get("total_seconds") != before:
+            changed = True
+    if changed:
+        _write_timetrack(state)
 
 
 def _write_timetrack(state: dict) -> None:
@@ -67,7 +130,9 @@ def _close_active(state: dict) -> None:
     tracker = state["trackers"].setdefault(
         key, {"summary": key, "total_seconds": 0, "segments": []}
     )
-    tracker["segments"].append({"started_at": started_str, "ended_at": now_str, "seconds": seconds})
+    tracker["segments"].append(
+        {"id": _new_id(), "started_at": started_str, "ended_at": now_str, "seconds": seconds}
+    )
     tracker["total_seconds"] = tracker.get("total_seconds", 0) + seconds
     state["active"] = None
 
@@ -220,12 +285,99 @@ class Handler(http.server.SimpleHTTPRequestHandler):
             _start_tracker(state, IDLE_KEY, "Idle")
         elif action in ("stop", "stopall"):
             _close_active(state)
+        elif action == "add_segment":
+            err = self._do_add_segment(state, req)
+            if err:
+                self._respond(400, err)
+                return
+        elif action == "edit_segment":
+            code, err = self._do_edit_segment(state, req)
+            if err:
+                self._respond(code, err)
+                return
+        elif action == "delete_segment":
+            code, err = self._do_delete_segment(state, req)
+            if err:
+                self._respond(code, err)
+                return
         else:
             self._respond(400, f"Unknown action: {action!r}")
             return
 
         _write_timetrack(state)
         self._respond_json(200, state)
+
+    def _do_add_segment(self, state, req):
+        """Append a manual segment, creating the tracker if needed. Returns error str or None."""
+        key = req.get("key", "")
+        if not key:
+            return "Missing key"
+        try:
+            started = _parse_dt(req.get("started_at", ""))
+            ended = _parse_dt(req.get("ended_at", ""))
+        except ValueError:
+            return "Invalid start/end datetime"
+        if ended <= started:
+            return "End must be after start"
+        tracker = state.setdefault("trackers", {}).setdefault(
+            key, {"summary": req.get("summary") or key, "total_seconds": 0, "segments": []}
+        )
+        if req.get("summary"):
+            tracker["summary"] = req["summary"]
+        tracker["segments"].append({
+            "id": _new_id(),
+            "started_at": started.isoformat(timespec="seconds"),
+            "ended_at": ended.isoformat(timespec="seconds"),
+            "seconds": int((ended - started).total_seconds()),
+        })
+        tracker["segments"].sort(key=lambda s: s.get("started_at", ""))
+        _recompute_total(tracker)
+        return None
+
+    def _do_edit_segment(self, state, req):
+        """Edit an existing segment's start/end. Returns (code, error) or (200, None)."""
+        key, seg_id = req.get("key", ""), req.get("id", "")
+        if not key or not seg_id:
+            return 400, "Missing key or id"
+        tracker = state.get("trackers", {}).get(key)
+        if not tracker:
+            return 404, f"Tracker {key} not found"
+        seg = next((s for s in tracker.get("segments", []) if s.get("id") == seg_id), None)
+        if seg is None:
+            return 404, "Segment not found"
+        try:
+            started = _parse_dt(req.get("started_at", ""))
+            ended = _parse_dt(req.get("ended_at", ""))
+        except ValueError:
+            return 400, "Invalid start/end datetime"
+        if ended <= started:
+            return 400, "End must be after start"
+        seg["started_at"] = started.isoformat(timespec="seconds")
+        seg["ended_at"] = ended.isoformat(timespec="seconds")
+        seg["seconds"] = int((ended - started).total_seconds())
+        tracker["segments"].sort(key=lambda s: s.get("started_at", ""))
+        _recompute_total(tracker)
+        return 200, None
+
+    def _do_delete_segment(self, state, req):
+        """Delete a segment; drop the tracker if it becomes empty and isn't active."""
+        key, seg_id = req.get("key", ""), req.get("id", "")
+        if not key or not seg_id:
+            return 400, "Missing key or id"
+        tracker = state.get("trackers", {}).get(key)
+        if not tracker:
+            return 404, f"Tracker {key} not found"
+        segs = tracker.get("segments", [])
+        new_segs = [s for s in segs if s.get("id") != seg_id]
+        if len(new_segs) == len(segs):
+            return 404, "Segment not found"
+        tracker["segments"] = new_segs
+        active_key = (state.get("active") or {}).get("key")
+        if not new_segs and key != active_key:
+            del state["trackers"][key]
+        else:
+            _recompute_total(tracker)
+        return 200, None
 
     def _respond(self, code: int, msg: str):
         body = msg.encode()
@@ -249,6 +401,7 @@ class Handler(http.server.SimpleHTTPRequestHandler):
 
 if __name__ == "__main__":
     os.chdir(ROOT)
+    _migrate_timetrack()
     with http.server.HTTPServer(("", PORT), Handler) as srv:
         print(f"dashboard server listening on :{PORT}", flush=True)
         srv.serve_forever()
