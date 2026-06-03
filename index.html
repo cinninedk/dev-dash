@@ -611,12 +611,6 @@
         return;
       }
       ttData = await resp.json();
-      prevIssueStatuses = {};
-      if (jiraData?.issues) {
-        jiraData.issues.forEach(i => {
-          prevIssueStatuses[i.key] = i.status;
-        });
-      }
     } catch (e) {
       console.error('load timetrack:', e);
       ttData = {active: null, trackers: {}, updated: null};
@@ -631,6 +625,11 @@
     const prevStatus = prevIssueStatuses[activeKey];
     if (prevStatus && prevStatus !== 'QUALITY ASSURANCE' && issue.status === 'QUALITY ASSURANCE') {
       trackIdle();
+    }
+    if (jiraData?.issues) {
+      jiraData.issues.forEach(i => {
+        prevIssueStatuses[i.key] = i.status;
+      });
     }
   }
 
