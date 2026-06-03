@@ -228,10 +228,9 @@
       font-size: 14px;
       padding: 2px 5px;
       letter-spacing: 0.5px;
-      margin-top: 3px;
     }
     .track-btn:hover { color: var(--bright); border-color: var(--bright); }
-    .track-btn.active { color: var(--bright); border-color: var(--bright); animation: pulse-amber 1s ease-in-out infinite; }
+    .track-btn.active { color: var(--bright); border-color: var(--bright); animation: blink 1.2s step-start infinite; }
 
     @keyframes pulse-amber {
       0%, 100% { opacity: 1; }
@@ -473,6 +472,7 @@
           <div class="tracking-header">TRACKING</div>
           <div class="tracking-issue" id="tracking-issue">–</div>
           <div class="tracking-elapsed" id="tracking-elapsed">0:00</div>
+          <div id="tracking-summary" style="font-size: 14px; margin: 6px 0; flex: 1; overflow-y: auto;"></div>
           <div class="tracking-buttons">
             <button class="tracking-btn tracking-idle" onclick="trackIdle()">Idle</button>
             <button class="tracking-btn tracking-stop" onclick="trackStop()">Stop</button>
@@ -524,7 +524,9 @@
       });
       if (!resp.ok) throw new Error(await resp.text());
       ttData = await resp.json();
+      rerenderKanban();
       renderTrackingBox();
+      startTrackingTick();
     } catch (e) {
       console.error('track issue:', e);
     }
@@ -539,7 +541,9 @@
       });
       if (!resp.ok) throw new Error(await resp.text());
       ttData = await resp.json();
+      rerenderKanban();
       renderTrackingBox();
+      startTrackingTick();
     } catch (e) {
       console.error('track idle:', e);
     }
@@ -554,10 +558,34 @@
       });
       if (!resp.ok) throw new Error(await resp.text());
       ttData = await resp.json();
+      rerenderKanban();
       renderTrackingBox();
     } catch (e) {
       console.error('track stop:', e);
     }
+  }
+
+  function rerenderKanban() {
+    if (!jiraData) return;
+    const issues = jiraData.issues ?? [];
+    const cols = {
+      open:      issues.filter(i => i.status === 'OPEN' || i.status === 'REOPENED'),
+      implement: issues.filter(i => i.status === 'IMPLEMENT'),
+      bv:        issues.filter(i => i.status === 'BUSINESS VALIDATION'),
+      resolved:  issues.filter(i => i.status === 'RESOLVED'),
+    };
+    for (const [key, cards] of Object.entries(cols)) {
+      document.getElementById(`cards-${key}`).innerHTML = cards.length
+        ? cards.map(jiraCard).join('')
+        : '<div style="padding:8px 10px;color:var(--dim);font-size:14px">–</div>';
+    }
+    const qaRegular = issues.filter(i => i.status === 'QUALITY ASSURANCE');
+    document.getElementById('cards-qa').innerHTML = qaRegular.map(jiraCard).join('') ||
+      '<div style="padding:8px 10px;color:var(--dim);font-size:14px">–</div>';
+    const nextTasks = jiraData.next_tasks ?? [];
+    document.getElementById('cards-next').innerHTML = nextTasks.length
+      ? nextTasks.map(jiraCard).join('')
+      : '<div style="padding:8px 10px;color:var(--dim);font-size:14px">–</div>';
   }
 
   function formatElapsed(seconds) {
@@ -575,21 +603,36 @@
 
   function renderTrackingBox() {
     const active = ttData?.active;
+    const trackers = ttData?.trackers ?? {};
     const issueEl = document.getElementById('tracking-issue');
     const elapsedEl = document.getElementById('tracking-elapsed');
-    const trackBtns = document.querySelectorAll('.track-btn');
-    trackBtns.forEach(btn => btn.classList.remove('active'));
+
     if (active) {
-      issueEl.textContent = active.key === '__IDLE__' ? 'Idle' : active.key;
+      issueEl.textContent = active.key === '__IDLE__' ? '⏸ Idle' : active.key;
       const elapsed = computeElapsed();
       elapsedEl.textContent = formatElapsed(elapsed);
-      if (active.key !== '__IDLE__') {
-        const activeBtn = document.querySelector(`.track-btn[onclick*="${esc(active.key)}"]`);
-        if (activeBtn) activeBtn.classList.add('active');
-      }
     } else {
       issueEl.textContent = '–';
       elapsedEl.textContent = '0:00';
+    }
+
+    const issuesHtml = Object.entries(trackers)
+      .filter(([k]) => k !== '__IDLE__')
+      .map(([key, tracker]) => {
+        const time = formatElapsed(tracker.total_seconds);
+        return `<div style="font-size: 14px; color: var(--dim); padding: 2px 0;">${key}: <span style="color: var(--green);">${time}</span></div>`;
+      })
+      .join('');
+
+    const idleTime = trackers.__IDLE__ ? formatElapsed(trackers.__IDLE__.total_seconds) : null;
+    const idleHtml = idleTime ? `<div style="font-size: 14px; color: var(--dim); padding: 2px 0;">Idle: <span style="color: var(--yellow);">${idleTime}</span></div>` : '';
+
+    const allTime = Object.values(trackers).reduce((sum, t) => sum + (t.total_seconds ?? 0), 0);
+    const totalHtml = allTime > 0 ? `<div style="margin-top: 6px; padding-top: 6px; border-top: 1px solid var(--border); font-size: 15px; color: var(--bright);">TOTAL: ${formatElapsed(allTime)}</div>` : '';
+
+    const summaryEl = document.getElementById('tracking-summary');
+    if (summaryEl) {
+      summaryEl.innerHTML = issuesHtml + idleHtml + totalHtml;
     }
   }
 
@@ -817,15 +860,20 @@
       ? `<a href="${url}" target="_blank" rel="noopener" style="color:${keyColor};text-decoration:none">${esc(issue.key)}</a>`
       : `<span style="color:${keyColor}">${esc(issue.key)}</span>`;
     const isTracking = ttData?.active?.key === issue.key;
+    const tracker = ttData?.trackers?.[issue.key];
+    const trackedTime = tracker ? formatElapsed(tracker.total_seconds) : '';
     return `
       <div class="jira-card" data-issue-key="${esc(issue.key)}">
-        <div class="card-key">${keyHtml}</div>
+        <div style="display: flex; gap: 6px; align-items: center;">
+          <div class="card-key">${keyHtml}</div>
+          <button class="track-btn ${isTracking ? 'active' : ''}" data-key="${esc(issue.key)}" data-summary="${esc(issue.summary)}" onclick="trackIssue(this.getAttribute('data-key'), this.getAttribute('data-summary'))">${isTracking ? 'TRACKING' : 'Track'}</button>
+          ${trackedTime ? `<span style="color: var(--green); font-size: 16px;">${trackedTime}</span>` : ''}
+        </div>
         <div class="card-summary">${esc(issue.summary)}</div>
         <div class="card-meta">
           <span class="type-badge ${typeClass(issue.type)}">${esc(issue.type ?? '?')}</span>
           ${issue.teknisk_qa && !hideTqaBadge ? '<span class="tqa-badge">TEKN·QA</span>' : ''}
         </div>
-        <button class="track-btn ${isTracking ? 'active' : ''}" onclick="trackIssue('${esc(issue.key)}', ${JSON.stringify(esc(issue.summary))})">${isTracking ? '[TRACKING]' : '[Track]'}</button>
       </div>`;
   }
 
