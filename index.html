@@ -77,7 +77,7 @@
       flex-shrink: 0;
     }
 
-    #refresh-btn {
+    #refresh-btn, #timesheet-link {
       background: none;
       border: 1px solid var(--border);
       color: var(--text);
@@ -87,8 +87,10 @@
       cursor: pointer;
       flex-shrink: 0;
       letter-spacing: 1px;
+      text-decoration: none;
+      display: inline-block;
     }
-    #refresh-btn:hover { border-color: var(--bright); color: var(--bright); }
+    #refresh-btn:hover, #timesheet-link:hover { border-color: var(--bright); color: var(--bright); }
 
     /* ── STATS ROW ── */
     #stats-row {
@@ -411,6 +413,7 @@
     <div id="logo">◆ DEV-DASHBOARD</div>
     <div id="poll-status">–</div>
     <div id="header-clock"></div>
+    <a id="timesheet-link" href="time.html">⏱ TIMESHEET</a>
     <button id="refresh-btn" onclick="loadData()">⟳ REFRESH</button>
   </header>
 

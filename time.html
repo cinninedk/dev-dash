@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>Time Tracking — DEV DASHBOARD</title>
+  <title>Timesheet — DEV DASHBOARD</title>
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link href="https://fonts.googleapis.com/css2?family=Share+Tech+Mono&display=swap" rel="stylesheet">
   <style>
@@ -30,12 +30,26 @@
       line-height: 1.6;
     }
 
-    header { margin-bottom: 25px; }
-    h1 { color: var(--bright); font-size: 28px; letter-spacing: 2px; margin-bottom: 8px; }
-    .back-link { color: var(--dim); text-decoration: none; font-size: 16px; }
-    .back-link:hover { color: var(--bright); }
+    header { margin-bottom: 18px; display: flex; align-items: baseline; gap: 18px; flex-wrap: wrap; }
+    h1 { color: var(--bright); font-size: 28px; letter-spacing: 2px; }
+    .nav-link { color: var(--dim); text-decoration: none; font-size: 16px; }
+    .nav-link:hover { color: var(--bright); }
 
     #content { max-width: 1200px; }
+
+    .toolbar { margin-bottom: 16px; }
+
+    .btn {
+      background: none;
+      border: 1px solid var(--border);
+      color: var(--text);
+      font-family: inherit;
+      font-size: 16px;
+      padding: 5px 12px;
+      cursor: pointer;
+      letter-spacing: 0.5px;
+    }
+    .btn:hover { border-color: var(--bright); color: var(--bright); }
 
     .tracker-item {
       background: var(--panel);
@@ -49,43 +63,17 @@
       display: flex;
       justify-content: space-between;
       align-items: center;
-      margin-bottom: 6px;
       cursor: pointer;
       user-select: none;
     }
+    .tracker-header:hover { background: rgba(212,135,10,0.04); border-radius: 2px; }
 
-    .tracker-header:hover {
-      background: rgba(212,135,10,0.04);
-      border-radius: 2px;
-    }
+    .tracker-toggle { margin-right: 6px; color: var(--dim); font-size: 14px; width: 12px; display: inline-block; }
+    .tracker-segments.collapsed { display: none; }
 
-    .tracker-toggle {
-      margin-right: 6px;
-      color: var(--dim);
-      font-size: 14px;
-    }
-
-    .tracker-segments.collapsed {
-      display: none;
-    }
-
-    .tracker-key {
-      color: var(--bright);
-      font-size: 20px;
-      font-weight: bold;
-    }
-
-    .tracker-summary {
-      color: var(--text);
-      font-size: 18px;
-      margin-bottom: 6px;
-    }
-
-    .tracker-total {
-      color: var(--green);
-      font-size: 22px;
-      font-weight: bold;
-    }
+    .tracker-key { color: var(--bright); font-size: 20px; font-weight: bold; }
+    .tracker-summary { color: var(--text); font-size: 18px; }
+    .tracker-total { color: var(--green); font-size: 22px; font-weight: bold; white-space: nowrap; padding-left: 16px; }
 
     .tracker-segments {
       margin-top: 8px;
@@ -98,10 +86,54 @@
     .segment {
       display: flex;
       justify-content: space-between;
-      padding: 3px 0;
+      align-items: center;
+      padding: 4px 0;
+      gap: 12px;
     }
+    .segment:hover { background: rgba(212,135,10,0.03); }
+    .segment-range { flex: 1; }
+    .segment-right { display: flex; align-items: center; gap: 10px; white-space: nowrap; }
+    .segment-time { color: var(--text); font-size: 18px; min-width: 90px; text-align: right; }
 
-    .segment-time { color: var(--text); font-size: 18px; }
+    .seg-btn {
+      background: none;
+      border: 1px solid var(--border);
+      color: var(--dim);
+      font-family: inherit;
+      font-size: 15px;
+      padding: 1px 7px;
+      cursor: pointer;
+    }
+    .seg-btn:hover { color: var(--bright); border-color: var(--bright); }
+    .seg-btn.del:hover { color: var(--red); border-color: var(--red); }
+
+    .add-entry-btn {
+      background: none;
+      border: 1px dashed var(--border);
+      color: var(--dim);
+      font-family: inherit;
+      font-size: 15px;
+      padding: 3px 10px;
+      cursor: pointer;
+      margin-top: 8px;
+    }
+    .add-entry-btn:hover { color: var(--green); border-color: var(--green); }
+
+    /* inline forms */
+    .seg-form { display: flex; align-items: center; gap: 8px; padding: 6px 0; flex-wrap: wrap; }
+    .seg-form input {
+      background: var(--bg);
+      color: var(--text);
+      border: 1px solid var(--border);
+      font-family: inherit;
+      font-size: 16px;
+      padding: 3px 6px;
+      color-scheme: dark;
+    }
+    .seg-form input[type="text"] { min-width: 150px; }
+    .seg-form input:focus { outline: none; border-color: var(--bright); }
+    .seg-form .arrow { color: var(--dim); }
+    .form-err { color: var(--red); font-size: 15px; margin-left: 4px; }
 
     .grand-total {
       background: rgba(110,212,100,0.05);
@@ -115,18 +147,21 @@
     }
 
     .empty { color: var(--dim); padding: 20px; text-align: center; }
-
-    .idle-tracker { opacity: 0.7; }
+    .idle-tracker { opacity: 0.75; }
   </style>
 </head>
 <body>
 
 <header>
-  <h1>⏱ TIME TRACKING</h1>
-  <a class="back-link" href="index.html">← Back to Dashboard</a>
+  <h1>⏱ TIMESHEET</h1>
+  <a class="nav-link" href="index.html">← Back to Dashboard</a>
 </header>
 
 <div id="content">
+  <div class="toolbar">
+    <button class="btn" onclick="openNewEntry()">+ New entry</button>
+  </div>
+  <div id="new-entry"></div>
   <div id="trackers"></div>
   <div id="grand-total" class="grand-total" style="display:none;">TOTAL: <span id="total-hours">0h 0m</span></div>
 </div>
@@ -134,6 +169,11 @@
 <script>
 const IDLE_KEY = '__IDLE__';
 
+let lastData = null;
+// openForm: null | {type:'edit', key, id} | {type:'add', key} | {type:'new'}
+let openForm = null;
+
+// ── formatting ────────────────────────────────────────────────────────────
 function formatTime(seconds) {
   const h = Math.floor(seconds / 3600);
   const m = Math.floor((seconds % 3600) / 60);
@@ -143,103 +183,221 @@ function formatTime(seconds) {
 
 function formatDateTime(isoStr) {
   if (!isoStr) return '–';
-  const d = new Date(isoStr);
-  return d.toLocaleString('da-DK', {
-    year: 'numeric',
-    month: '2-digit',
-    day: '2-digit',
-    hour: '2-digit',
-    minute: '2-digit'
+  return new Date(isoStr).toLocaleString('da-DK', {
+    year: 'numeric', month: '2-digit', day: '2-digit',
+    hour: '2-digit', minute: '2-digit'
   });
 }
 
-function toggleSegments(headerEl) {
-  const itemEl = headerEl.closest('.tracker-item');
-  const segmentsEl = itemEl.querySelector('.tracker-segments');
-  if (!segmentsEl) return;
+function esc(s) {
+  return String(s ?? '').replace(/&/g,'&amp;').replace(/</g,'&lt;')
+    .replace(/>/g,'&gt;').replace(/"/g,'&quot;').replace(/'/g,'&#39;');
+}
 
-  const toggleEl = headerEl.querySelector('.tracker-toggle');
-  if (segmentsEl.classList.contains('collapsed')) {
-    segmentsEl.classList.remove('collapsed');
-    if (toggleEl) toggleEl.textContent = '▾';
-  } else {
-    segmentsEl.classList.add('collapsed');
-    if (toggleEl) toggleEl.textContent = '▸';
+// datetime-local value (local time) from an ISO string
+function toInputValue(iso) {
+  const d = iso ? new Date(iso) : new Date();
+  const pad = n => String(n).padStart(2, '0');
+  return `${d.getFullYear()}-${pad(d.getMonth()+1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
+}
+// datetime-local value -> ISO (UTC); server normalizes to local offset
+function inputToISO(val) {
+  if (!val) return '';
+  const d = new Date(val);
+  if (isNaN(d.getTime())) return '';
+  return d.toISOString();
+}
+
+// ── API ───────────────────────────────────────────────────────────────────
+async function postTrack(payload) {
+  const resp = await fetch('/api/track', {
+    method: 'POST',
+    headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify(payload)
+  });
+  if (!resp.ok) throw new Error(await resp.text());
+  return resp.json();
+}
+
+// ── form open/close ─────────────────────────────────────────────────────────
+function openEdit(key, id) { openForm = {type:'edit', key, id}; render(); }
+function openAdd(key)      { openForm = {type:'add', key}; render(); }
+function openNewEntry()    { openForm = {type:'new'}; render(); }
+function cancelForm()      { openForm = null; loadAndRender(); }
+
+function showErr(msg) {
+  const el = document.getElementById('form-err');
+  if (el) el.textContent = msg;
+}
+
+async function saveEdit(key, id) {
+  const start = inputToISO(document.getElementById('f-start').value);
+  const end   = inputToISO(document.getElementById('f-end').value);
+  if (!start || !end)   return showErr('Enter both start and end');
+  if (new Date(end) <= new Date(start)) return showErr('End must be after start');
+  try {
+    await postTrack({action:'edit_segment', key, id, started_at:start, ended_at:end});
+    openForm = null; loadAndRender();
+  } catch (e) { showErr(e.message); }
+}
+
+async function saveAdd(key) {
+  const start = inputToISO(document.getElementById('f-start').value);
+  const end   = inputToISO(document.getElementById('f-end').value);
+  if (!start || !end)   return showErr('Enter both start and end');
+  if (new Date(end) <= new Date(start)) return showErr('End must be after start');
+  try {
+    await postTrack({action:'add_segment', key, started_at:start, ended_at:end});
+    openForm = null; loadAndRender();
+  } catch (e) { showErr(e.message); }
+}
+
+async function saveNew() {
+  const key     = document.getElementById('f-key').value.trim();
+  const summary = document.getElementById('f-summary').value.trim();
+  const start = inputToISO(document.getElementById('f-start').value);
+  const end   = inputToISO(document.getElementById('f-end').value);
+  if (!key)             return showErr('Enter an issue key');
+  if (!start || !end)   return showErr('Enter both start and end');
+  if (new Date(end) <= new Date(start)) return showErr('End must be after start');
+  try {
+    await postTrack({action:'add_segment', key, summary, started_at:start, ended_at:end});
+    openForm = null; loadAndRender();
+  } catch (e) { showErr(e.message); }
+}
+
+async function delSeg(key, id) {
+  if (!confirm(`Delete this time entry for ${key === IDLE_KEY ? 'Idle' : key}?`)) return;
+  try {
+    await postTrack({action:'delete_segment', key, id});
+    openForm = null; loadAndRender();
+  } catch (e) { alert('Delete failed: ' + e.message); }
+}
+
+// ── rendering ───────────────────────────────────────────────────────────────
+function segFormHtml({withKey=false, onsave='', cancel='cancelForm()', start='', end=''} = {}) {
+  const keyField = withKey
+    ? `<input type="text" id="f-key" placeholder="ISSUE-123" autocomplete="off">
+       <input type="text" id="f-summary" placeholder="summary (optional)" autocomplete="off">`
+    : '';
+  return `
+    <div class="seg-form">
+      ${keyField}
+      <input type="datetime-local" id="f-start" value="${start || toInputValue(new Date(Date.now()-3600e3).toISOString())}">
+      <span class="arrow">→</span>
+      <input type="datetime-local" id="f-end" value="${end || toInputValue(new Date().toISOString())}">
+      <button class="seg-btn" onclick="${onsave}">Save</button>
+      <button class="seg-btn" onclick="${cancel}">Cancel</button>
+      <span class="form-err" id="form-err"></span>
+    </div>`;
+}
+
+function render() {
+  const data = lastData;
+  if (!data) return;
+
+  // top-level new-entry form
+  document.getElementById('new-entry').innerHTML =
+    (openForm && openForm.type === 'new')
+      ? `<div class="tracker-item">${segFormHtml({withKey:true, onsave:'saveNew()'})}</div>`
+      : '';
+
+  const trackers = data.trackers || {};
+  const keys = Object.keys(trackers).filter(k => k !== IDLE_KEY).sort();
+  if (trackers[IDLE_KEY]) keys.push(IDLE_KEY);
+
+  const trackersEl = document.getElementById('trackers');
+  if (keys.length === 0) {
+    trackersEl.innerHTML = (openForm && openForm.type === 'new')
+      ? '' : '<div class="empty">No tracking data yet. Start tracking from the dashboard!</div>';
+    document.getElementById('grand-total').style.display = 'none';
+    return;
   }
+
+  let grandTotal = 0;
+  trackersEl.innerHTML = keys.map(key => {
+    const tracker = trackers[key];
+    const total = tracker.total_seconds || 0;
+    grandTotal += total;
+    const isIdle = key === IDLE_KEY;
+    const segs = tracker.segments || [];
+    const hasSegments = segs.length > 0;
+    const addingHere = openForm && openForm.type === 'add' && openForm.key === key;
+
+    const segmentsHtml = segs.map(seg => {
+      const editingThis = openForm && openForm.type === 'edit' && openForm.key === key && openForm.id === seg.id;
+      if (editingThis) {
+        return segFormHtml({
+          onsave: `saveEdit('${esc(key)}','${esc(seg.id)}')`,
+          start: toInputValue(seg.started_at),
+          end: toInputValue(seg.ended_at),
+        });
+      }
+      return `
+        <div class="segment">
+          <span class="segment-range">${formatDateTime(seg.started_at)} → ${formatDateTime(seg.ended_at)}</span>
+          <span class="segment-right">
+            <span class="segment-time">${formatTime(seg.seconds)}</span>
+            <button class="seg-btn" title="Edit" onclick="openEdit('${esc(key)}','${esc(seg.id)}')">✎</button>
+            <button class="seg-btn del" title="Delete" onclick="delSeg('${esc(key)}','${esc(seg.id)}')">✗</button>
+          </span>
+        </div>`;
+    }).join('');
+
+    const addHtml = addingHere
+      ? segFormHtml({onsave:`saveAdd('${esc(key)}')`})
+      : `<button class="add-entry-btn" onclick="openAdd('${esc(key)}')">+ add entry</button>`;
+
+    return `
+      <div class="tracker-item ${isIdle ? 'idle-tracker' : ''}">
+        <div class="tracker-header" onclick="toggleSegments(this)">
+          <div style="display:flex; align-items:center; gap:6px; flex:1;">
+            <span class="tracker-toggle">${hasSegments || addingHere ? '▾' : ''}</span>
+            <div>
+              <div class="tracker-key">${isIdle ? '⏸ IDLE' : esc(key)}</div>
+              ${!isIdle ? `<div class="tracker-summary">${esc(tracker.summary)}</div>` : ''}
+            </div>
+          </div>
+          <div class="tracker-total">${formatTime(total)}</div>
+        </div>
+        <div class="tracker-segments">
+          ${segmentsHtml}
+          ${addHtml}
+        </div>
+      </div>`;
+  }).join('');
+
+  const h = Math.floor(grandTotal / 3600);
+  const m = Math.floor((grandTotal % 3600) / 60);
+  document.getElementById('total-hours').textContent = `${h}h ${m}m`;
+  document.getElementById('grand-total').style.display = 'block';
+}
+
+function toggleSegments(headerEl) {
+  // don't collapse if a click bubbled up from a form/button
+  const segmentsEl = headerEl.closest('.tracker-item').querySelector('.tracker-segments');
+  if (!segmentsEl) return;
+  const toggleEl = headerEl.querySelector('.tracker-toggle');
+  const collapsed = segmentsEl.classList.toggle('collapsed');
+  if (toggleEl && toggleEl.textContent.trim()) toggleEl.textContent = collapsed ? '▸' : '▾';
 }
 
 async function loadAndRender() {
   try {
     const resp = await fetch('data/timetrack.json', {cache:'no-store'});
     if (!resp.ok) throw new Error('No tracking data yet');
-    const data = await resp.json();
-
-    const trackersEl = document.getElementById('trackers');
-    const trackers = data.trackers || {};
-    const keys = Object.keys(trackers).filter(k => k !== IDLE_KEY).sort();
-    if (data.trackers[IDLE_KEY]) keys.push(IDLE_KEY);
-
-    if (keys.length === 0) {
-      trackersEl.innerHTML = '<div class="empty">No tracking data yet. Start tracking from the dashboard!</div>';
-      document.getElementById('grand-total').style.display = 'none';
-      return;
-    }
-
-    let grandTotal = 0;
-    const html = keys.map(key => {
-      const tracker = trackers[key];
-      const total = tracker.total_seconds || 0;
-      grandTotal += total;
-      const isIdle = key === IDLE_KEY;
-
-      const segmentsHtml = (tracker.segments || [])
-        .map(seg => `
-          <div class="segment">
-            <span>${formatDateTime(seg.started_at)} → ${formatDateTime(seg.ended_at)}</span>
-            <span class="segment-time">${formatTime(seg.seconds)}</span>
-          </div>
-        `)
-        .join('');
-
-      const hasSegments = tracker.segments && tracker.segments.length > 0;
-      return `
-        <div class="tracker-item ${isIdle ? 'idle-tracker' : ''}">
-          <div class="tracker-header" onclick="toggleSegments(this)">
-            <div style="display: flex; align-items: center; gap: 6px; flex: 1;">
-              ${hasSegments ? `<span class="tracker-toggle">▸</span>` : ''}
-              <div>
-                <div class="tracker-key">${isIdle ? '⏸ IDLE' : key}</div>
-                ${!isIdle ? `<div class="tracker-summary">${tracker.summary}</div>` : ''}
-              </div>
-            </div>
-            <div class="tracker-total">${formatTime(total)}</div>
-          </div>
-          ${hasSegments ? `
-            <div class="tracker-segments">
-              ${segmentsHtml}
-            </div>
-          ` : ''}
-        </div>
-      `;
-    }).join('');
-
-    trackersEl.innerHTML = html;
-
-    const grandTotalEl = document.getElementById('grand-total');
-    const h = Math.floor(grandTotal / 3600);
-    const m = Math.floor((grandTotal % 3600) / 60);
-    document.getElementById('total-hours').textContent = `${h}h ${m}m`;
-    grandTotalEl.style.display = 'block';
-
+    lastData = await resp.json();
+    render();
   } catch (e) {
-    document.getElementById('trackers').innerHTML = `<div class="empty">⚠ ${e.message}</div>`;
+    document.getElementById('trackers').innerHTML = `<div class="empty">⚠ ${esc(e.message)}</div>`;
     document.getElementById('grand-total').style.display = 'none';
-    console.error('load time tracking:', e);
+    console.error('load timesheet:', e);
   }
 }
 
 loadAndRender();
-setInterval(loadAndRender, 5000);
+// auto-refresh, but never while a form is open (would wipe the user's input)
+setInterval(() => { if (!openForm) loadAndRender(); }, 5000);
 </script>
 
 </body>
