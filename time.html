@@ -1,0 +1,799 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Timesheet — Jiraffe</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link href="https://fonts.googleapis.com/css2?family=Share+Tech+Mono&display=swap" rel="stylesheet">
+  <style>
+    :root {
+      --bg:     #0a0700;
+      --panel:  #100c00;
+      --border: #8a5500;
+      --dim:    #e0aa38;
+      --text:   #f5aa30;
+      --bright: #ffd455;
+      --green:  #6ed464;
+      --red:    #f05858;
+      --yellow: #f8c838;
+    }
+
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+
+    body {
+      background: var(--bg);
+      color: var(--text);
+      font-family: 'Share Tech Mono', monospace;
+      font-size: 18px;
+      padding: 20px;
+      line-height: 1.6;
+    }
+
+    header { margin-bottom: 18px; display: flex; align-items: baseline; gap: 18px; flex-wrap: wrap; }
+    h1 { color: var(--bright); font-size: 28px; letter-spacing: 2px; }
+    .nav-link { color: var(--dim); text-decoration: none; font-size: 16px; }
+    .nav-link:hover { color: var(--bright); }
+
+    #content { display: flex; flex-direction: column; }
+
+    #main-row { display: flex; gap: 20px; align-items: flex-start; justify-content: space-between; }
+    #main-col  { max-width: 860px; width: 100%; min-width: 0; }
+
+    #daily-panel {
+      width: 160px;
+      flex-shrink: 0;
+      position: sticky;
+      top: 20px;
+    }
+    .daily-panel-header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      color: var(--dim);
+      font-size: 15px;
+      letter-spacing: 1px;
+      margin-bottom: 8px;
+    }
+    .week-nav {
+      background: none;
+      border: none;
+      color: var(--dim);
+      font-family: inherit;
+      font-size: 18px;
+      cursor: pointer;
+      padding: 0 4px;
+      line-height: 1;
+    }
+    .week-nav:hover { color: var(--bright); }
+    .week-nav:disabled { opacity: 0.2; cursor: default; }
+    .day-box {
+      background: var(--panel);
+      border: 1px solid var(--border);
+      padding: 0 10px;
+      margin-bottom: 6px;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      gap: 6px;
+      cursor: pointer;
+      height: 40px;
+      box-sizing: border-box;
+    }
+    .day-box.today { border-color: var(--dim); }
+    .day-box.selected { border-color: var(--bright); background: rgba(255,212,85,0.07); }
+    .day-label { color: var(--dim); font-size: 18px; white-space: nowrap; }
+    .day-box.today .day-label { color: var(--bright); }
+    .day-box.selected .day-label { color: var(--bright); }
+    .day-total { color: var(--green); font-size: 18px; white-space: nowrap; }
+    .day-total.empty { color: rgba(138,85,0,0.5); }
+
+    #day-filter-banner {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      background: rgba(255,212,85,0.06);
+      border: 1px solid var(--bright);
+      padding: 6px 12px;
+      margin-bottom: 12px;
+      font-size: 15px;
+      color: var(--bright);
+      letter-spacing: 0.5px;
+    }
+    #day-filter-banner.hidden { display: none; }
+    .filter-clear {
+      background: none;
+      border: none;
+      color: var(--dim);
+      font-family: inherit;
+      font-size: 16px;
+      cursor: pointer;
+      padding: 0 2px;
+      margin-left: auto;
+    }
+    .filter-clear:hover { color: var(--bright); }
+    .daily-week-total {
+      display: flex;
+      justify-content: space-between;
+      align-items: baseline;
+    }
+    #week-total-box .day-label { color: var(--text); font-size: 18px; }
+    #week-total-box .day-total { color: var(--green); font-size: 18px; font-weight: bold; }
+
+    .toolbar { margin-bottom: 16px; }
+
+    .btn {
+      background: none;
+      border: 1px solid var(--border);
+      color: var(--text);
+      font-family: inherit;
+      font-size: 16px;
+      padding: 5px 12px;
+      cursor: pointer;
+      letter-spacing: 0.5px;
+    }
+    .btn:hover { border-color: var(--bright); color: var(--bright); }
+
+    .tracker-item {
+      background: var(--panel);
+      border: 1px solid var(--border);
+      padding: 12px 16px;
+      margin-bottom: 12px;
+      border-radius: 2px;
+    }
+
+    .tracker-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      cursor: pointer;
+      user-select: none;
+    }
+    .tracker-header:hover { background: rgba(212,135,10,0.04); border-radius: 2px; }
+
+    .tracker-toggle { margin-right: 6px; color: var(--dim); font-size: 14px; width: 12px; display: inline-block; }
+    .tracker-segments.collapsed { display: none; }
+
+    .tracker-key { color: var(--bright); font-size: 20px; font-weight: bold; }
+    .tracker-summary { color: var(--text); font-size: 18px; }
+    .tracker-total { color: var(--green); font-size: 22px; font-weight: bold; white-space: nowrap; padding-left: 16px; }
+
+    .tracker-segments {
+      margin-top: 8px;
+      padding-top: 8px;
+      border-top: 1px solid rgba(138,85,0,0.3);
+      font-size: 18px;
+      color: var(--dim);
+    }
+
+    .segment {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      padding: 4px 0;
+      gap: 12px;
+    }
+    .segment:hover { background: rgba(212,135,10,0.03); }
+    .segment-range { flex: 1; }
+    .segment-right { display: flex; align-items: center; gap: 10px; white-space: nowrap; }
+    .segment-time { color: var(--text); font-size: 18px; min-width: 90px; text-align: right; }
+
+    .seg-btn {
+      background: none;
+      border: 1px solid var(--border);
+      color: var(--dim);
+      font-family: inherit;
+      font-size: 15px;
+      padding: 1px 7px;
+      cursor: pointer;
+    }
+    .seg-btn:hover { color: var(--bright); border-color: var(--bright); }
+    .seg-btn.del:hover { color: var(--red); border-color: var(--red); }
+
+    .add-entry-btn {
+      background: none;
+      border: 1px dashed var(--border);
+      color: var(--dim);
+      font-family: inherit;
+      font-size: 15px;
+      padding: 3px 10px;
+      cursor: pointer;
+      margin-top: 8px;
+    }
+    .add-entry-btn:hover { color: var(--green); border-color: var(--green); }
+
+    /* inline forms */
+    .seg-form { display: flex; align-items: center; gap: 8px; padding: 6px 0; flex-wrap: wrap; }
+    .seg-form input {
+      background: var(--bg);
+      color: var(--text);
+      border: 1px solid var(--border);
+      font-family: inherit;
+      font-size: 16px;
+      padding: 3px 6px;
+      color-scheme: dark;
+    }
+    .seg-form input[type="text"] { min-width: 150px; }
+    .seg-form input:focus { outline: none; border-color: var(--bright); }
+    .seg-form .arrow { color: var(--dim); }
+    .form-err { color: var(--red); font-size: 15px; margin-left: 4px; }
+
+
+    .empty { color: var(--dim); padding: 20px; text-align: center; }
+    .idle-tracker { opacity: 0.75; }
+
+    #active-banner {
+      background: rgba(110,212,100,0.06);
+      border: 1px solid var(--green);
+      padding: 10px 16px;
+      margin-bottom: 16px;
+      display: flex;
+      align-items: center;
+      gap: 16px;
+      flex-wrap: wrap;
+    }
+    #active-banner.hidden { display: none !important; }
+    .active-label { color: var(--dim); font-size: 14px; letter-spacing: 1px; }
+    .active-key   { color: var(--bright); font-size: 20px; font-weight: bold; }
+    .active-elapsed { color: var(--green); font-size: 22px; font-weight: bold; min-width: 80px; }
+    .btn-stop {
+      background: none;
+      border: 1px solid var(--red);
+      color: var(--red);
+      font-family: inherit;
+      font-size: 16px;
+      padding: 5px 14px;
+      cursor: pointer;
+      letter-spacing: 0.5px;
+      margin-left: auto;
+    }
+    .btn-stop:hover { background: rgba(240,88,88,0.1); }
+    .track-btn {
+      background: none;
+      border: 1px solid var(--border);
+      color: var(--dim);
+      cursor: pointer;
+      font-family: inherit;
+      font-size: 14px;
+      padding: 2px 5px;
+      letter-spacing: 0.5px;
+      flex-shrink: 0;
+    }
+    .track-btn:hover { color: var(--bright); border-color: var(--bright); }
+    .track-btn.active { color: var(--bright); border-color: var(--bright); animation: blink 1.2s step-start infinite; }
+    @keyframes blink { 50% { opacity: 0.3; } }
+  </style>
+</head>
+<body>
+
+<header>
+  <h1>⏱ TIMESHEET</h1>
+  <a class="nav-link" href="index.html">← Back to Dashboard</a>
+</header>
+
+<div id="content">
+  <div id="main-row">
+    <div id="main-col">
+      <div id="active-banner" class="hidden">
+        <span class="active-label">TRACKING</span>
+        <span class="active-key" id="active-key">–</span>
+        <span class="active-elapsed" id="active-elapsed">0:00</span>
+        <button class="btn-stop" onclick="stopTracking()">■ Stop</button>
+      </div>
+      <div class="toolbar">
+        <button class="btn" onclick="openNewEntry()">+ New entry</button>
+      </div>
+      <div id="new-entry"></div>
+      <div id="day-filter-banner" class="hidden">
+        <span id="day-filter-label"></span>
+        <button class="filter-clear" onclick="clearDayFilter()" title="Clear filter (Esc)">✕ all entries</button>
+      </div>
+      <div id="trackers"></div>
+    </div>
+    <div id="daily-panel">
+      <div class="daily-panel-header">
+        <button class="week-nav" id="btn-prev-week" onclick="shiftWeek(-1)">‹</button>
+        <span id="week-label">THIS WEEK</span>
+        <button class="week-nav" id="btn-next-week" onclick="shiftWeek(1)" disabled>›</button>
+      </div>
+      <div id="day-boxes"></div>
+      <div id="week-total-box" class="daily-week-total" style="border:1px solid var(--green); padding:10px 12px; background:rgba(110,212,100,0.04); margin-top:10px;">
+        <span class="day-label">WEEK</span>
+        <span class="day-total" id="week-total-val">–</span>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script>
+const IDLE_KEY = '__IDLE__';
+
+let lastData   = null;
+let liveTimer  = null;  // 1-second tick for the active-banner elapsed display
+// openForm: null | {type:'edit', key, id} | {type:'add', key} | {type:'new'}
+let openForm = null;
+const expandedKeys = new Set();
+let weekOffset = 0; // 0 = current week, -1 = last week, etc.
+let selectedDay = null; // localDateStr of the selected day, or null
+let selectedWeek = null; // {start, end} localDateStr, or null
+
+// ── formatting ────────────────────────────────────────────────────────────
+function formatTime(seconds) {
+  const h = Math.floor(seconds / 3600);
+  const m = Math.floor((seconds % 3600) / 60);
+  const s = seconds % 60;
+  return `${h}h ${m}m ${s}s`;
+}
+
+function formatDateTime(isoStr) {
+  if (!isoStr) return '–';
+  return new Date(isoStr).toLocaleString('da-DK', {
+    year: 'numeric', month: '2-digit', day: '2-digit',
+    hour: '2-digit', minute: '2-digit'
+  });
+}
+
+function esc(s) {
+  return String(s ?? '').replace(/&/g,'&amp;').replace(/</g,'&lt;')
+    .replace(/>/g,'&gt;').replace(/"/g,'&quot;').replace(/'/g,'&#39;');
+}
+
+// datetime-local value (local time) from an ISO string
+function toInputValue(iso) {
+  const d = iso ? new Date(iso) : new Date();
+  const pad = n => String(n).padStart(2, '0');
+  return `${d.getFullYear()}-${pad(d.getMonth()+1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
+}
+// datetime-local value -> ISO (UTC); server normalizes to local offset
+function inputToISO(val) {
+  if (!val) return '';
+  const d = new Date(val);
+  if (isNaN(d.getTime())) return '';
+  return d.toISOString();
+}
+
+// ── active banner ─────────────────────────────────────────────────────────
+function computeElapsed() {
+  const active = lastData?.active;
+  if (!active) return 0;
+  return Math.floor((Date.now() - new Date(active.started_at).getTime()) / 1000);
+}
+
+function formatElapsed(secs) {
+  const h = Math.floor(secs / 3600);
+  const m = Math.floor((secs % 3600) / 60);
+  const s = secs % 60;
+  const pad = n => String(n).padStart(2, '0');
+  return h > 0 ? `${h}:${pad(m)}:${pad(s)}` : `${m}:${pad(s)}`;
+}
+
+function renderActiveBanner() {
+  const banner  = document.getElementById('active-banner');
+  const keyEl   = document.getElementById('active-key');
+  const elapsed = document.getElementById('active-elapsed');
+  const active  = lastData?.active;
+
+  if (active) {
+    keyEl.textContent = active.key === IDLE_KEY ? '⏸ IDLE' : active.key;
+    elapsed.textContent = formatElapsed(computeElapsed());
+    banner.classList.remove('hidden');
+    if (!liveTimer) {
+      liveTimer = setInterval(() => {
+        const secs = computeElapsed();
+        document.getElementById('active-elapsed').textContent = formatElapsed(secs);
+        const baseSeconds = lastData?.trackers?.[lastData.active?.key]?.total_seconds || 0;
+        const totalEl = document.getElementById('active-tracker-total');
+        if (totalEl) totalEl.textContent = formatTime(baseSeconds + secs);
+        const segEl = document.getElementById('active-seg-time');
+        if (segEl) segEl.textContent = formatTime(secs);
+        if (weekOffset === 0) renderDailyPanel();
+      }, 1000);
+    }
+  } else {
+    banner.classList.add('hidden');
+    if (liveTimer) { clearInterval(liveTimer); liveTimer = null; }
+  }
+}
+
+async function startTracking(key, summary) {
+  try {
+    await postTrack({action: 'start', key, summary});
+  } catch(e) { console.error('startTracking:', e); }
+}
+
+async function stopTracking() {
+  try {
+    await postTrack({action: 'stop'});
+    loadAndRender();
+  } catch (e) { alert('Stop failed: ' + e.message); }
+}
+
+// ── API ───────────────────────────────────────────────────────────────────
+async function postTrack(payload) {
+  const resp = await fetch('/api/track', {
+    method: 'POST',
+    headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify(payload)
+  });
+  if (!resp.ok) throw new Error(await resp.text());
+  return resp.json();
+}
+
+// ── form open/close ─────────────────────────────────────────────────────────
+function openEdit(key, id)    { openForm = {type:'edit', key, id}; render(); }
+function openAdd(key)         { openForm = {type:'add', key}; render(); }
+function openNewEntry()       { openForm = {type:'new'}; render(); }
+function openEditActive(key)  { openForm = {type:'edit_active', key}; render(); }
+function cancelForm()         { openForm = null; loadAndRender(); }
+
+async function saveEditActive(key) {
+  const start = inputToISO(document.getElementById('f-active-start').value);
+  if (!start) return showErr('Enter a start time');
+  if (new Date(start) > new Date()) return showErr('Start time is in the future');
+  try {
+    await postTrack({action: 'edit_active', key, started_at: start});
+    openForm = null; loadAndRender();
+  } catch (e) { showErr(e.message); }
+}
+
+function showErr(msg) {
+  const el = document.getElementById('form-err');
+  if (el) el.textContent = msg;
+}
+
+async function saveEdit(key, id) {
+  const start = inputToISO(document.getElementById('f-start').value);
+  const end   = inputToISO(document.getElementById('f-end').value);
+  if (!start || !end)   return showErr('Enter both start and end');
+  if (new Date(end) <= new Date(start)) return showErr('End must be after start');
+  try {
+    await postTrack({action:'edit_segment', key, id, started_at:start, ended_at:end});
+    openForm = null; loadAndRender();
+  } catch (e) { showErr(e.message); }
+}
+
+async function saveAdd(key) {
+  const start = inputToISO(document.getElementById('f-start').value);
+  const end   = inputToISO(document.getElementById('f-end').value);
+  if (!start || !end)   return showErr('Enter both start and end');
+  if (new Date(end) <= new Date(start)) return showErr('End must be after start');
+  try {
+    await postTrack({action:'add_segment', key, started_at:start, ended_at:end});
+    openForm = null; loadAndRender();
+  } catch (e) { showErr(e.message); }
+}
+
+async function saveNew() {
+  const key     = document.getElementById('f-key').value.trim();
+  const summary = document.getElementById('f-summary').value.trim();
+  const start = inputToISO(document.getElementById('f-start').value);
+  const end   = inputToISO(document.getElementById('f-end').value);
+  if (!key)             return showErr('Enter an issue key');
+  if (!start || !end)   return showErr('Enter both start and end');
+  if (new Date(end) <= new Date(start)) return showErr('End must be after start');
+  try {
+    await postTrack({action:'add_segment', key, summary, started_at:start, ended_at:end});
+    openForm = null; loadAndRender();
+  } catch (e) { showErr(e.message); }
+}
+
+async function delSeg(key, id) {
+  if (!confirm(`Delete this time entry for ${key === IDLE_KEY ? 'Idle' : key}?`)) return;
+  try {
+    await postTrack({action:'delete_segment', key, id});
+    openForm = null; loadAndRender();
+  } catch (e) { alert('Delete failed: ' + e.message); }
+}
+
+// ── rendering ───────────────────────────────────────────────────────────────
+function segFormHtml({withKey=false, onsave='', cancel='cancelForm()', start='', end=''} = {}) {
+  const keyField = withKey
+    ? `<input type="text" id="f-key" placeholder="ISSUE-123" autocomplete="off">
+       <input type="text" id="f-summary" placeholder="summary (optional)" autocomplete="off">`
+    : '';
+  return `
+    <div class="seg-form" onkeydown="if(event.key==='Enter'){event.preventDefault();${onsave}}">
+      ${keyField}
+      <input type="datetime-local" id="f-start" value="${start || toInputValue(new Date(Date.now()-3600e3).toISOString())}">
+      <span class="arrow">→</span>
+      <input type="datetime-local" id="f-end" value="${end || toInputValue(new Date().toISOString())}">
+      <button class="seg-btn" onclick="${onsave}">Save</button>
+      <button class="seg-btn" onclick="${cancel}">Cancel</button>
+      <span class="form-err" id="form-err"></span>
+    </div>`;
+}
+
+function render() {
+  const data = lastData;
+  if (!data) return;
+
+  // top-level new-entry form
+  document.getElementById('new-entry').innerHTML =
+    (openForm && openForm.type === 'new')
+      ? `<div class="tracker-item">${segFormHtml({withKey:true, onsave:'saveNew()'})}</div>`
+      : '';
+
+  const trackers = data.trackers || {};
+  let keys = Object.keys(trackers).filter(k => k !== IDLE_KEY).sort();
+  if (trackers[IDLE_KEY]) keys.push(IDLE_KEY);
+  if (selectedDay) {
+    keys = keys.filter(k => {
+      const segs = trackers[k]?.segments || [];
+      const isActive = k === (lastData?.active?.key);
+      return segs.some(s => localDateStr(new Date(s.started_at)) === selectedDay)
+        || (isActive && localDateStr(new Date(lastData.active.started_at)) === selectedDay);
+    });
+  } else if (selectedWeek) {
+    keys = keys.filter(k => {
+      const segs = trackers[k]?.segments || [];
+      const isActive = k === (lastData?.active?.key);
+      return segs.some(s => { const d = localDateStr(new Date(s.started_at)); return d >= selectedWeek.start && d <= selectedWeek.end; })
+        || (isActive && (() => { const d = localDateStr(new Date(lastData.active.started_at)); return d >= selectedWeek.start && d <= selectedWeek.end; })());
+    });
+  }
+
+  const trackersEl = document.getElementById('trackers');
+  if (keys.length === 0) {
+    trackersEl.innerHTML = (openForm && openForm.type === 'new')
+      ? '' : '<div class="empty">No tracking data yet. Start tracking from Jiraffe!</div>';
+    return;
+  }
+
+  const activeKey = lastData?.active?.key;
+  let grandTotal = 0;
+  trackersEl.innerHTML = keys.map(key => {
+    const tracker = trackers[key];
+    const isActive = key === activeKey;
+    const elapsed = isActive ? computeElapsed() : 0;
+    const isIdle = key === IDLE_KEY;
+    const allSegs = tracker.segments || [];
+    const segs = selectedDay
+      ? allSegs.filter(s => localDateStr(new Date(s.started_at)) === selectedDay)
+      : selectedWeek
+      ? allSegs.filter(s => { const d = localDateStr(new Date(s.started_at)); return d >= selectedWeek.start && d <= selectedWeek.end; })
+      : allSegs;
+    const activeInFilter = isActive && lastData.active && (() => {
+      if (selectedDay) return localDateStr(new Date(lastData.active.started_at)) === selectedDay;
+      if (selectedWeek) { const d = localDateStr(new Date(lastData.active.started_at)); return d >= selectedWeek.start && d <= selectedWeek.end; }
+      return true;
+    })();
+    const total = (selectedDay || selectedWeek)
+      ? segs.reduce((sum, s) => sum + (s.seconds || 0), 0) + (activeInFilter ? elapsed : 0)
+      : (tracker.total_seconds || 0) + elapsed;
+    grandTotal += total;
+    const hasSegments = segs.length > 0 || isActive;
+    const addingHere = openForm && openForm.type === 'add' && openForm.key === key;
+
+    const segmentsHtml = segs.map(seg => {
+      const editingThis = openForm && openForm.type === 'edit' && openForm.key === key && openForm.id === seg.id;
+      if (editingThis) {
+        return segFormHtml({
+          onsave: `saveEdit('${esc(key)}','${esc(seg.id)}')`,
+          start: toInputValue(seg.started_at),
+          end: toInputValue(seg.ended_at),
+        });
+      }
+      return `
+        <div class="segment">
+          <span class="segment-range">${formatDateTime(seg.started_at)} → ${formatDateTime(seg.ended_at)}</span>
+          <span class="segment-right">
+            <span class="segment-time">${formatTime(seg.seconds)}</span>
+            <button class="seg-btn" title="Edit" onclick="openEdit('${esc(key)}','${esc(seg.id)}')">✎</button>
+            <button class="seg-btn del" title="Delete" onclick="delSeg('${esc(key)}','${esc(seg.id)}')">✗</button>
+          </span>
+        </div>`;
+    }).join('');
+
+    // Active (in-progress) segment row — shown while this key is being tracked
+    let activeSegHtml = '';
+    if (isActive && lastData.active) {
+      const editingActive = openForm && openForm.type === 'edit_active' && openForm.key === key;
+      if (editingActive) {
+        activeSegHtml = `
+          <div class="seg-form" onkeydown="if(event.key==='Enter'){event.preventDefault();saveEditActive('${esc(key)}')}">
+            <input type="datetime-local" id="f-active-start" value="${toInputValue(lastData.active.started_at)}">
+            <span class="arrow">→ (tracking…)</span>
+            <button class="seg-btn" onclick="saveEditActive('${esc(key)}')">Save</button>
+            <button class="seg-btn" onclick="cancelForm()">Cancel</button>
+            <span class="form-err" id="form-err"></span>
+          </div>`;
+      } else {
+        activeSegHtml = `
+          <div class="segment">
+            <span class="segment-range">${formatDateTime(lastData.active.started_at)} → <span style="color:var(--green);">tracking…</span></span>
+            <span class="segment-right">
+              <span class="segment-time" id="active-seg-time">${formatTime(elapsed)}</span>
+              <button class="seg-btn" title="Edit start time" onclick="openEditActive('${esc(key)}')">✎</button>
+            </span>
+          </div>`;
+      }
+    }
+
+    const addHtml = addingHere
+      ? segFormHtml({onsave:`saveAdd('${esc(key)}')`})
+      : (!isActive ? `<button class="add-entry-btn" onclick="openAdd('${esc(key)}')">+ add entry</button>` : '');
+
+    const isCollapsed = !expandedKeys.has(key);
+    const totalId = isActive ? ' id="active-tracker-total"' : '';
+    return `
+      <div class="tracker-item ${isIdle ? 'idle-tracker' : ''}" data-tracker-key="${esc(key)}">
+        <div class="tracker-header" onclick="toggleSegments(this)">
+          <div style="display:flex; align-items:center; gap:6px; flex:1;">
+            <span class="tracker-toggle">${hasSegments || addingHere ? (isCollapsed ? '▸' : '▾') : ''}</span>
+            <div>
+              <div style="display:flex; align-items:center; gap:6px;">
+                <span class="tracker-key">${isIdle ? '⏸ IDLE' : esc(key)}</span>
+                ${!isIdle ? `<button class="track-btn${isActive ? ' active' : ''}" onclick="event.stopPropagation();startTracking('${esc(key)}','${esc(tracker.summary)}')">${isActive ? 'TRACKING' : 'Track'}</button>` : ''}
+              </div>
+              ${!isIdle ? `<div class="tracker-summary">${esc(tracker.summary)}</div>` : ''}
+            </div>
+          </div>
+          <div class="tracker-total"${totalId}>${formatTime(total)}</div>
+        </div>
+        <div class="tracker-segments${isCollapsed ? ' collapsed' : ''}">
+          ${activeSegHtml}
+          ${segmentsHtml}
+          ${addHtml}
+        </div>
+      </div>`;
+  }).join('');
+
+  renderDailyPanel();
+}
+
+function shiftWeek(delta) {
+  weekOffset = Math.min(0, weekOffset + delta);
+  renderDailyPanel();
+}
+
+function selectDay(ds, label) {
+  if (selectedDay === ds) { clearDayFilter(); return; }
+  selectedDay = ds;
+  selectedWeek = null;
+  document.getElementById('day-filter-label').textContent = label;
+  document.getElementById('day-filter-banner').classList.remove('hidden');
+  renderDailyPanel();
+  render();
+}
+
+function selectWeek(start, end, label) {
+  if (selectedWeek && selectedWeek.start === start) { clearDayFilter(); return; }
+  selectedWeek = {start, end};
+  selectedDay = null;
+  document.getElementById('day-filter-label').textContent = label;
+  document.getElementById('day-filter-banner').classList.remove('hidden');
+  renderDailyPanel();
+  render();
+}
+
+function clearDayFilter() {
+  if (!selectedDay && !selectedWeek) return;
+  selectedDay = null;
+  selectedWeek = null;
+  document.getElementById('day-filter-banner').classList.add('hidden');
+  renderDailyPanel();
+  render();
+}
+
+function renderDailyPanel() {
+  if (!lastData) return;
+
+  // Monday of the target week
+  const now = new Date();
+  const todayStr = localDateStr(now);
+  const monday = new Date(now);
+  monday.setDate(now.getDate() - ((now.getDay() + 6) % 7) + weekOffset * 7);
+  monday.setHours(0, 0, 0, 0);
+
+  // Build a map: localDateStr -> seconds
+  const dayTotals = {};
+  const trackers = lastData.trackers || {};
+  const activeKey = lastData.active?.key;
+  for (const [key, tracker] of Object.entries(trackers)) {
+    for (const seg of tracker.segments || []) {
+      const d = localDateStr(new Date(seg.started_at));
+      dayTotals[d] = (dayTotals[d] || 0) + (seg.seconds || 0);
+    }
+  }
+  // Add live elapsed for active tracker to today
+  if (activeKey && weekOffset === 0) {
+    dayTotals[todayStr] = (dayTotals[todayStr] || 0) + computeElapsed();
+  }
+
+  const DAY_NAMES = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri'];
+  let weekTotal = 0;
+  let html = '';
+  for (let i = 0; i < 5; i++) {
+    const d = new Date(monday);
+    d.setDate(monday.getDate() + i);
+    const ds = localDateStr(d);
+    const secs = dayTotals[ds] || 0;
+    weekTotal += secs;
+    const isToday = ds === todayStr;
+    const isSelected = ds === selectedDay;
+    const label = `${DAY_NAMES[i]} ${String(d.getDate()).padStart(2, '0')}`;
+    const timeStr = secs > 0 ? formatHm(secs) : '–';
+    const classes = ['day-box', isToday ? 'today' : '', isSelected ? 'selected' : ''].filter(Boolean).join(' ');
+    html += `<div class="${classes}" onclick="selectDay('${ds}','${label}')">
+      <span class="day-label">${label}</span>
+      <span class="day-total${secs === 0 ? ' empty' : ''}">${timeStr}</span>
+    </div>`;
+  }
+  document.getElementById('day-boxes').innerHTML = html;
+
+  const weekTotalVal = document.getElementById('week-total-val');
+  if (weekTotalVal) {
+    weekTotalVal.textContent = weekTotal > 0 ? formatHm(weekTotal) : '–';
+    weekTotalVal.className = 'day-total' + (weekTotal === 0 ? ' empty' : '');
+  }
+
+  const weekStart = monday;
+  const weekEnd = new Date(monday);
+  weekEnd.setDate(monday.getDate() + 4);
+  const fmt = d => `${String(d.getDate()).padStart(2,'0')}/${String(d.getMonth()+1).padStart(2,'0')}`;
+  document.getElementById('week-label').textContent =
+    weekOffset === 0 ? 'THIS WEEK' : `${fmt(weekStart)}–${fmt(weekEnd)}`;
+  document.getElementById('btn-next-week').disabled = weekOffset === 0;
+
+  const weekStartStr = localDateStr(weekStart);
+  const weekEndStr = localDateStr(weekEnd);
+  const weekSelected = selectedWeek && selectedWeek.start === weekStartStr;
+  const weekBox = document.getElementById('week-total-box');
+  weekBox.style.cursor = 'pointer';
+  weekBox.style.borderColor = weekSelected ? 'var(--bright)' : 'var(--green)';
+  weekBox.style.background = weekSelected ? 'rgba(255,212,85,0.07)' : 'rgba(110,212,100,0.04)';
+  const weekFilterLabel = weekOffset === 0 ? 'This week' : `Week ${fmt(weekStart)}–${fmt(weekEnd)}`;
+  weekBox.onclick = () => selectWeek(weekStartStr, weekEndStr, weekFilterLabel);
+}
+
+function localDateStr(date) {
+  return `${date.getFullYear()}-${String(date.getMonth()+1).padStart(2,'0')}-${String(date.getDate()).padStart(2,'0')}`;
+}
+
+function formatHm(seconds) {
+  const h = Math.floor(seconds / 3600);
+  const m = Math.floor((seconds % 3600) / 60);
+  return `${h}h ${m}m`;
+}
+
+function toggleSegments(headerEl) {
+  const item = headerEl.closest('.tracker-item');
+  const segmentsEl = item.querySelector('.tracker-segments');
+  if (!segmentsEl) return;
+  const key = item.dataset.trackerKey;
+  const collapsed = segmentsEl.classList.toggle('collapsed');
+  if (key) collapsed ? expandedKeys.delete(key) : expandedKeys.add(key);
+  const toggleEl = headerEl.querySelector('.tracker-toggle');
+  if (toggleEl && toggleEl.textContent.trim()) toggleEl.textContent = collapsed ? '▸' : '▾';
+}
+
+async function loadAndRender() {
+  try {
+    const resp = await fetch('data/timetrack.json', {cache:'no-store'});
+    if (!resp.ok) throw new Error('No tracking data yet');
+    lastData = await resp.json();
+    renderActiveBanner();
+    render();
+  } catch (e) {
+    document.getElementById('trackers').innerHTML = `<div class="empty">⚠ ${esc(e.message)}</div>`;
+    if (liveTimer) { clearInterval(liveTimer); liveTimer = null; }
+    document.getElementById('active-banner').classList.add('hidden');
+    console.error('load timesheet:', e);
+  }
+}
+
+loadAndRender();
+// auto-refresh, but never while a form is open (would wipe the user's input)
+setInterval(() => { if (!openForm) loadAndRender(); }, 5000);
+
+document.addEventListener('keydown', e => { if (e.key === 'Escape') clearDayFilter(); });
+document.addEventListener('mousedown', e => {
+  if (!selectedDay && !selectedWeek) return;
+  if (!e.target.closest('#daily-panel') && !e.target.closest('#day-filter-banner')) {
+    clearDayFilter();
+  }
+});
+</script>
+
+</body>
+</html>

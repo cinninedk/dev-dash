@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>DEV DASHBOARD</title>
+  <title>Jiraffe</title>
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link href="https://fonts.googleapis.com/css2?family=Share+Tech+Mono&display=swap" rel="stylesheet">
   <style>
@@ -77,7 +77,11 @@
       flex-shrink: 0;
     }
 
-    #refresh-btn {
+    #next-task-btn { background: none; border: 1px solid var(--border); color: var(--dim); font-family: inherit; font-size: 17px; padding: 3px 10px; cursor: pointer; flex-shrink: 0; letter-spacing: 1px; }
+    #next-task-btn:hover { border-color: var(--bright); color: var(--bright); }
+    #next-task-btn.active { border-color: var(--bright); color: var(--bright); }
+
+    #refresh-btn, #timesheet-link {
       background: none;
       border: 1px solid var(--border);
       color: var(--text);
@@ -87,8 +91,10 @@
       cursor: pointer;
       flex-shrink: 0;
       letter-spacing: 1px;
+      text-decoration: none;
+      display: inline-block;
     }
-    #refresh-btn:hover { border-color: var(--bright); color: var(--bright); }
+    #refresh-btn:hover, #timesheet-link:hover { border-color: var(--bright); color: var(--bright); }
 
     /* ── STATS ROW ── */
     #stats-row {
@@ -218,6 +224,55 @@
     .b-qwarn { color: var(--yellow); border-color: var(--yellow); }
     .b-qna   { color: var(--dim);    border-color: var(--border); }
 
+    /* ── TRACKING UI ── */
+    .track-btn {
+      background: none;
+      border: 1px solid var(--border);
+      color: var(--dim);
+      cursor: pointer;
+      font-family: inherit;
+      font-size: 14px;
+      padding: 2px 5px;
+      letter-spacing: 0.5px;
+    }
+    .track-btn:hover { color: var(--bright); border-color: var(--bright); }
+    .track-btn.active { color: var(--bright); border-color: var(--bright); animation: blink 1.2s step-start infinite; }
+
+    @keyframes pulse-amber {
+      0%, 100% { opacity: 1; }
+      50% { opacity: 0.3; }
+    }
+
+    #tracking-box {
+      display: flex;
+      flex-direction: column;
+      border-left: 1px solid var(--border);
+      background: var(--panel);
+      padding: 8px;
+      min-width: 220px;
+      max-width: 260px;
+    }
+
+    .tracking-header { color: var(--dim); font-size: 14px; letter-spacing: 1px; margin-bottom: 6px; }
+    .tracking-issue { color: var(--bright); font-size: 18px; margin-bottom: 3px; }
+    .tracking-elapsed { color: var(--text); font-size: 18px; margin: 4px 0; font-weight: bold; }
+    .tracking-buttons { display: flex; gap: 4px; flex-wrap: wrap; margin-top: 6px; }
+    .tracking-btn {
+      background: none;
+      border: 1px solid var(--border);
+      color: var(--dim);
+      cursor: pointer;
+      font-family: inherit;
+      font-size: 13px;
+      padding: 3px 6px;
+      letter-spacing: 0.5px;
+      flex: 1;
+      min-width: 60px;
+    }
+    .tracking-btn:hover { color: var(--bright); border-color: var(--bright); }
+    .tracking-idle { color: var(--yellow); }
+    .tracking-stop { color: var(--red); }
+
     .copy-btn {
       background: none;
       border: 1px solid var(--border);
@@ -230,7 +285,75 @@
     }
     .copy-btn:hover { color: var(--text); border-color: var(--amber); }
 
+    /* ── SONAR ISSUES MODAL ── */
+    #sonar-modal {
+      display: none;
+      position: fixed;
+      inset: 0;
+      z-index: 10000;
+      background: rgba(0,0,0,0.75);
+      align-items: center;
+      justify-content: center;
+    }
+    #sonar-modal.open { display: flex; }
+    #sonar-modal-box {
+      background: var(--panel);
+      border: 1px solid var(--border);
+      width: min(860px, 92vw);
+      max-height: 80vh;
+      display: flex;
+      flex-direction: column;
+    }
+    #sonar-modal-header {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      padding: 8px 12px;
+      border-bottom: 1px solid var(--border);
+      font-size: 14px;
+      color: var(--dim);
+    }
+    #sonar-modal-title { flex: 1; color: var(--text); }
+    #sonar-modal-copy {
+      background: none;
+      border: 1px solid var(--border);
+      color: var(--dim);
+      cursor: pointer;
+      font-family: inherit;
+      font-size: 12px;
+      padding: 2px 8px;
+    }
+    #sonar-modal-copy:hover { color: var(--bright); border-color: var(--bright); }
+    #sonar-modal-close {
+      background: none;
+      border: none;
+      color: var(--dim);
+      cursor: pointer;
+      font-family: inherit;
+      font-size: 16px;
+      padding: 0 4px;
+      line-height: 1;
+    }
+    #sonar-modal-close:hover { color: var(--red); }
+    #sonar-modal-body {
+      overflow-y: auto;
+      padding: 12px;
+      flex: 1;
+    }
+    #sonar-modal-body pre {
+      font-family: inherit;
+      font-size: 14px;
+      color: var(--text);
+      white-space: pre-wrap;
+      word-break: break-all;
+    }
+
     @keyframes blink { 0%,100%{opacity:1} 50%{opacity:0.25} }
+
+    @keyframes breathe-red    { 0%,100%{ color:#883030; } 50%{ color:#ff8888; } }
+    @keyframes breathe-yellow { 0%,100%{ color:#9a7010; } 50%{ color:#ffe080; } }
+    .breathe-red    { animation: breathe-red    3s ease-in-out infinite; }
+    .breathe-yellow { animation: breathe-yellow 3s ease-in-out infinite; }
 
     .empty-msg { padding: 12px 14px; color: var(--dim); font-size: 17px; }
 
@@ -358,10 +481,24 @@
 </head>
 <body>
 
+  <div id="sonar-modal" onclick="if(event.target===this)closeSonarModal()">
+    <div id="sonar-modal-box">
+      <div id="sonar-modal-header">
+        <span id="sonar-modal-title">SonarQube Issues</span>
+        <button id="sonar-modal-copy" onclick="copySonarIssues(this)">copy</button>
+        <button id="sonar-modal-close" onclick="closeSonarModal()">✕</button>
+      </div>
+      <div id="sonar-modal-body"><pre id="sonar-modal-pre">Loading…</pre></div>
+    </div>
+  </div>
+
   <header>
-    <div id="logo">◆ DEV-DASHBOARD</div>
+    <div id="logo">◆ JIRAFFE</div>
     <div id="poll-status">–</div>
     <div id="header-clock"></div>
+    <div id="sprint-dates" style="color:var(--dim);font-size:15px;letter-spacing:0.5px;"></div>
+    <a id="timesheet-link" href="time.html">⏱ TIMESHEET</a>
+    <button id="next-task-btn" onclick="toggleNextTask()">NEXT TASK</button>
     <button id="refresh-btn" onclick="loadData()">⟳ REFRESH</button>
   </header>
 
@@ -392,30 +529,42 @@
 
     <section id="jira-kanban">
       <div class="section-title">── JIRA KANBAN</div>
-      <div id="kanban-cols">
-        <div class="kanban-col" id="col-open">
-          <div class="col-header">OPEN <span class="col-count" id="cnt-open">0</span></div>
-          <div id="cards-open"></div>
+      <div style="display: flex; flex: 1; overflow: hidden; min-height: 0;">
+        <div id="kanban-cols" style="flex: 1;">
+          <div class="kanban-col" id="col-open">
+            <div class="col-header">OPEN <span class="col-count" id="cnt-open">0</span></div>
+            <div id="cards-open"></div>
+          </div>
+          <div class="kanban-col" id="col-implement">
+            <div class="col-header">IMPLEMENT <span class="col-count" id="cnt-implement">0</span></div>
+            <div id="cards-implement"></div>
+          </div>
+          <div class="kanban-col" id="col-next" style="display:none">
+            <div class="col-header">NEXT TASK <span class="col-count" id="cnt-next">0</span></div>
+            <div id="cards-next"></div>
+          </div>
+          <div class="kanban-col" id="col-qa">
+            <div class="col-header">QA <span class="col-count" id="cnt-qa">0</span></div>
+            <div id="cards-qa"></div>
+          </div>
+          <div class="kanban-col" id="col-bv">
+            <div class="col-header">BV <span class="col-count" id="cnt-bv">0</span></div>
+            <div id="cards-bv"></div>
+          </div>
+          <div class="kanban-col" id="col-resolved">
+            <div class="col-header">RESOLVED <span class="col-count" id="cnt-resolved">0</span></div>
+            <div id="cards-resolved"></div>
+          </div>
         </div>
-        <div class="kanban-col" id="col-implement">
-          <div class="col-header">IMPLEMENT <span class="col-count" id="cnt-implement">0</span></div>
-          <div id="cards-implement"></div>
-        </div>
-        <div class="kanban-col" id="col-next" style="display:none">
-          <div class="col-header">NEXT TASK <span class="col-count" id="cnt-next">0</span></div>
-          <div id="cards-next"></div>
-        </div>
-        <div class="kanban-col" id="col-qa">
-          <div class="col-header">QA <span class="col-count" id="cnt-qa">0</span></div>
-          <div id="cards-qa"></div>
-        </div>
-        <div class="kanban-col" id="col-bv">
-          <div class="col-header">BV <span class="col-count" id="cnt-bv">0</span></div>
-          <div id="cards-bv"></div>
-        </div>
-        <div class="kanban-col" id="col-resolved">
-          <div class="col-header">RESOLVED <span class="col-count" id="cnt-resolved">0</span></div>
-          <div id="cards-resolved"></div>
+        <div id="tracking-box">
+          <div class="tracking-header">TRACKING</div>
+          <div class="tracking-issue" id="tracking-issue">–</div>
+          <div class="tracking-elapsed" id="tracking-elapsed">0:00</div>
+          <div id="tracking-summary" style="font-size: 16px; margin: 6px 0; flex: 1; overflow-y: auto;"></div>
+          <div class="tracking-buttons">
+            <button class="tracking-btn tracking-idle" onclick="trackIdle()">Idle</button>
+            <button class="tracking-btn tracking-stop" onclick="trackStop()">Stop</button>
+          </div>
         </div>
       </div>
     </section>
@@ -439,15 +588,238 @@
   let STASH = ''; // populated from bitbucket.json stash_url field
   let JIRA  = ''; // populated from jira.json jira_url field
   const SESSION_START = Date.now();
+  let forceNextTask = false;
+
+  function toggleNextTask() {
+    forceNextTask = !forceNextTask;
+    document.getElementById('next-task-btn').classList.toggle('active', forceNextTask);
+    if (bbData && jiraData) renderAll(bbData, jiraData);
+  }
 
   let bbData        = null;
   let jiraData      = null;
+  let ttData        = null;  // timetrack.json
+  let prevIssueStatuses = {};  // for detecting QA transitions
   let nextAt        = null;
   let refreshTimer  = null;
+  let ttTimer       = null;  // for elapsed time tick
   const FETCH_BUFFER_MS = 2_000;  // ms after next_poll before fetching
   let workHoursEnabled = true;
   let workStartHour    = 8;
   let workEndHour      = 18;
+
+  // ── Tracking ──────────────────────────────────────────────────────────
+
+  async function trackIssue(key, summary) {
+    if (ttData?.active?.key === key) {
+      trackStop();
+      return;
+    }
+    try {
+      const resp = await fetch(`/api/track`, {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({action: 'start', key, summary})
+      });
+      if (!resp.ok) throw new Error(await resp.text());
+      ttData = await resp.json();
+      rerenderKanban();
+      renderTrackingBox();
+      startTrackingTick();
+    } catch (e) {
+      console.error('track issue:', e);
+    }
+  }
+
+  async function trackIdle() {
+    try {
+      const resp = await fetch(`/api/track`, {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({action: 'idle'})
+      });
+      if (!resp.ok) throw new Error(await resp.text());
+      ttData = await resp.json();
+      rerenderKanban();
+      renderTrackingBox();
+      startTrackingTick();
+    } catch (e) {
+      console.error('track idle:', e);
+    }
+  }
+
+  async function trackStop() {
+    try {
+      const resp = await fetch(`/api/track`, {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({action: 'stop'})
+      });
+      if (!resp.ok) throw new Error(await resp.text());
+      ttData = await resp.json();
+      rerenderKanban();
+      renderTrackingBox();
+    } catch (e) {
+      console.error('track stop:', e);
+    }
+  }
+
+  function rerenderKanban() {
+    if (!jiraData) return;
+    const issues = jiraData.issues ?? [];
+    const cols = {
+      open:      issues.filter(i => i.status === 'OPEN' || i.status === 'REOPENED'),
+      implement: issues.filter(i => i.status === 'IMPLEMENT'),
+      bv:        issues.filter(i => i.status === 'BUSINESS VALIDATION'),
+      resolved:  issues.filter(i => i.status === 'RESOLVED'),
+    };
+    for (const [key, cards] of Object.entries(cols)) {
+      document.getElementById(`cards-${key}`).innerHTML = cards.length
+        ? cards.map(jiraCard).join('')
+        : '<div style="padding:8px 10px;color:var(--dim);font-size:14px">–</div>';
+    }
+    const qaRegular = issues.filter(i => i.status === 'QUALITY ASSURANCE');
+    document.getElementById('cards-qa').innerHTML = qaRegular.map(jiraCard).join('') ||
+      '<div style="padding:8px 10px;color:var(--dim);font-size:14px">–</div>';
+    const nextTasks = jiraData.next_tasks ?? [];
+    document.getElementById('cards-next').innerHTML = nextTasks.length
+      ? nextTasks.map(jiraCard).join('')
+      : '<div style="padding:8px 10px;color:var(--dim);font-size:14px">–</div>';
+  }
+
+  function formatElapsed(seconds) {
+    const h = Math.floor(seconds / 3600);
+    const m = Math.floor((seconds % 3600) / 60);
+    const s = seconds % 60;
+    return `${h > 0 ? h + 'h ' : ''}${m}m ${s}s`;
+  }
+
+  function computeElapsed() {
+    if (!ttData?.active) return 0;
+    const started = new Date(ttData.active.started_at);
+    return Math.floor((Date.now() - started.getTime()) / 1000);
+  }
+
+  function todayStr() {
+    const d = new Date();
+    return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
+  }
+
+  function computeDailyTotal() {
+    const trackers = ttData?.trackers ?? {};
+    const active = ttData?.active;
+    const today = todayStr();
+    let secs = 0;
+    for (const [key, tracker] of Object.entries(trackers)) {
+      for (const seg of tracker.segments ?? []) {
+        const d = new Date(seg.started_at);
+        const ds = `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
+        if (ds === today) secs += seg.seconds || 0;
+      }
+    }
+    if (active) {
+      const d = new Date(active.started_at);
+      const ds = `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
+      if (ds === today) secs += computeElapsed();
+    }
+    return secs;
+  }
+
+  function renderTrackingBox() {
+    const active = ttData?.active;
+    const trackers = ttData?.trackers ?? {};
+    const issueEl = document.getElementById('tracking-issue');
+    const elapsedEl = document.getElementById('tracking-elapsed');
+
+    if (active) {
+      issueEl.textContent = active.key === '__IDLE__' ? '⏸ Idle' : active.key;
+      const elapsed = computeElapsed();
+      elapsedEl.textContent = formatElapsed(elapsed);
+    } else {
+      issueEl.textContent = '–';
+      elapsedEl.textContent = '0:00';
+    }
+
+    const activeElapsed = active ? computeElapsed() : 0;
+    const issuesHtml = Object.entries(trackers)
+      .filter(([k]) => k !== '__IDLE__')
+      .map(([key, tracker]) => {
+        const isActiveKey = active && active.key === key;
+        const time = formatElapsed((tracker.total_seconds || 0) + (isActiveKey ? activeElapsed : 0));
+        return `<div style="font-size: 16px; color: var(--dim); padding: 2px 0;">${key}: <span data-track-total="${esc(key)}" style="color: var(--green);">${time}</span></div>`;
+      })
+      .join('');
+
+    const idleActive = active?.key === '__IDLE__';
+    const idleSeconds = (trackers.__IDLE__?.total_seconds || 0) + (idleActive ? activeElapsed : 0);
+    const idleHtml = trackers.__IDLE__ ? `<div style="font-size: 16px; color: var(--dim); padding: 2px 0;">Idle: <span style="color: var(--yellow);">${formatElapsed(idleSeconds)}</span></div>` : '';
+
+    const allTime = Object.values(trackers).reduce((sum, t) => sum + (t.total_seconds ?? 0), 0) + activeElapsed;
+    const dailySecs = computeDailyTotal();
+    const sep = (allTime > 0 || dailySecs > 0) ? `<div style="margin-top:6px;padding-top:6px;border-top:1px solid var(--border)"></div>` : '';
+    const todayHtml = dailySecs > 0 ? `<div id="tracking-today-line" style="font-size: 17px; color: var(--text);">TODAY: ${formatElapsed(dailySecs)}</div>` : '';
+    const totalHtml = allTime > 0 ? `<div id="tracking-total-line" style="font-size: 17px; color: var(--bright);">TOTAL: ${formatElapsed(allTime)}</div>` : '';
+
+    const summaryEl = document.getElementById('tracking-summary');
+    if (summaryEl) {
+      summaryEl.innerHTML = issuesHtml + idleHtml + sep + todayHtml + totalHtml;
+    }
+  }
+
+  function startTrackingTick() {
+    if (ttTimer) clearInterval(ttTimer);
+    ttTimer = setInterval(() => {
+      if (ttData?.active) {
+        const elapsed = computeElapsed();
+        document.getElementById('tracking-elapsed').textContent = formatElapsed(elapsed);
+        const activeKey = ttData.active.key;
+        const tracker = ttData.trackers[activeKey];
+        if (tracker) {
+          const baseSeconds = tracker.total_seconds || 0;
+          const totalElapsed = formatElapsed(baseSeconds + elapsed);
+          const cardTimeEl = document.querySelector(`.card-time[data-issue-key="${activeKey}"]`);
+          if (cardTimeEl) cardTimeEl.textContent = totalElapsed;
+          const trackTotalEl = document.querySelector(`[data-track-total="${activeKey}"]`);
+          if (trackTotalEl) trackTotalEl.textContent = totalElapsed;
+        }
+        const allBase = Object.values(ttData.trackers).reduce((sum, t) => sum + (t.total_seconds ?? 0), 0);
+        const totalLineEl = document.getElementById('tracking-total-line');
+        if (totalLineEl) totalLineEl.textContent = `TOTAL: ${formatElapsed(allBase + elapsed)}`;
+        const todayLineEl = document.getElementById('tracking-today-line');
+        if (todayLineEl) todayLineEl.textContent = `TODAY: ${formatElapsed(computeDailyTotal())}`;
+      }
+    }, 1000);
+  }
+
+  async function loadTimetrack() {
+    try {
+      const resp = await fetch(`data/timetrack.json`, {cache:'no-store'});
+      if (!resp.ok) {
+        ttData = {active: null, trackers: {}, updated: null};
+        return;
+      }
+      ttData = await resp.json();
+    } catch (e) {
+      console.error('load timetrack:', e);
+      ttData = {active: null, trackers: {}, updated: null};
+    }
+  }
+
+  function detectAutoIdle() {
+    if (!ttData?.active || ttData.active.key === '__IDLE__') return;
+    const activeKey = ttData.active.key;
+    const issue = jiraData?.issues?.find(i => i.key === activeKey);
+    if (!issue) return;
+    const prevStatus = prevIssueStatuses[activeKey];
+    if (prevStatus && prevStatus !== 'QUALITY ASSURANCE' && issue.status === 'QUALITY ASSURANCE') {
+      trackIdle();
+    }
+    if (jiraData?.issues) {
+      jiraData.issues.forEach(i => {
+        prevIssueStatuses[i.key] = i.status;
+      });
+    }
+  }
 
   // ── Utilities ──────────────────────────────────────────────────────────
 
@@ -468,6 +840,48 @@
       setTimeout(() => { btn.textContent = orig; btn.disabled = false; }, 3000);
     }
   }
+
+  async function openSonarIssues(prId, btn) {
+    const orig = btn.textContent;
+    btn.textContent = '…';
+    btn.disabled = true;
+    try {
+      const resp = await fetch(`/api/sonar-issues?pr_id=${prId}`);
+      const text = await resp.text();
+      if (!resp.ok) throw new Error(text);
+      document.getElementById('sonar-modal-pre').textContent = text;
+      document.getElementById('sonar-modal-title').textContent = `SonarQube Issues — PR #${prId}`;
+      document.getElementById('sonar-modal').classList.add('open');
+    } catch (e) {
+      btn.textContent = 'error';
+      console.error('sonar issues:', e);
+      setTimeout(() => { btn.textContent = orig; btn.disabled = false; }, 3000);
+      return;
+    }
+    btn.textContent = orig;
+    btn.disabled = false;
+  }
+
+  function closeSonarModal() {
+    document.getElementById('sonar-modal').classList.remove('open');
+  }
+
+  async function copySonarIssues(btn) {
+    const text = document.getElementById('sonar-modal-pre').textContent;
+    const orig = btn.textContent;
+    try {
+      await navigator.clipboard.writeText(text);
+      btn.textContent = 'copied!';
+      setTimeout(() => { btn.textContent = orig; }, 2000);
+    } catch (e) {
+      btn.textContent = 'error';
+      setTimeout(() => { btn.textContent = orig; }, 2000);
+    }
+  }
+
+  document.addEventListener('keydown', e => {
+    if (e.key === 'Escape') closeSonarModal();
+  });
 
   function esc(s) {
     return String(s ?? '')
@@ -567,11 +981,11 @@
     const vulns    = pr.vulns    ?? 0;
     const hotspots = pr.hotspots ?? 0;
     const comments = pr.comments ?? 0;
-    const bc = bugs     > 0 ? 'var(--red)'    : 'var(--dim)';
-    const sc = smells   > 0 ? 'var(--yellow)' : 'var(--dim)';
-    const vc = vulns    > 0 ? 'var(--red)'    : 'var(--dim)';
-    const hc = hotspots > 0 ? 'var(--yellow)' : 'var(--dim)';
-    const cc = comments > 0 ? 'var(--yellow)' : 'var(--dim)';
+    const bugsHtml     = bugs     > 0 ? `<span class="breathe-red">bugs:${bugs}</span>`         : '';
+    const smellsHtml   = smells   > 0 ? `<span class="breathe-yellow">smells:${smells}</span>`   : '';
+    const vulnsHtml    = vulns    > 0 ? `<span class="breathe-red">vulns:${vulns}</span>`        : '';
+    const hotspotsHtml = hotspots > 0 ? `<span class="breathe-yellow">hotspots:${hotspots}</span>` : '';
+    const commentsHtml = comments > 0 ? `<span class="breathe-yellow">open comments:${comments}</span>` : '';
 
     return `
       <div class="pr-item">
@@ -583,16 +997,13 @@
           <span class="pr-meta">${appr} ${nwBadge} ${tasks}</span>
           ${buildBadge(pr.build_state, pr.build_name, pr.build_url)}
           ${qgBadge(pr.qg_label, pr.sonar_url)}
+          ${pr.qg_label === 'FAIL' && pr.sonar_url ? `<button class="copy-btn" onclick="openSonarIssues(${pr.id}, this)">issues</button>` : ''}
           ${conflict}
         </div>
         <div class="pr-detail">
           <span style="color:var(--blue)">${commitShort}</span>
           ${showBranch ? `<span style="color:var(--dim)">${esc(pr.branch ?? '')}</span>` : ''}
-          <span style="color:${bc}">bugs:${bugs}</span>
-          <span style="color:${sc}">smells:${smells}</span>
-          <span style="color:${vc}">vulns:${vulns}</span>
-          <span style="color:${hc}">hotspots:${hotspots}</span>
-          <span style="color:${cc}">open comments:${comments}</span>
+          ${bugsHtml}${smellsHtml}${vulnsHtml}${hotspotsHtml}${commentsHtml}
           ${isMyPr && comments > 0 ? `<button class="copy-btn" onclick="copyReviewCmd(${pr.id}, this)">copy reviews</button>` : ''}
         </div>
       </div>`;
@@ -632,9 +1043,21 @@
     const keyHtml = url
       ? `<a href="${url}" target="_blank" rel="noopener" style="color:${keyColor};text-decoration:none">${esc(issue.key)}</a>`
       : `<span style="color:${keyColor}">${esc(issue.key)}</span>`;
+    const isTracking = ttData?.active?.key === issue.key;
+    const tracker = ttData?.trackers?.[issue.key];
+    let trackedTime = '';
+    if (tracker) {
+      const baseSeconds = tracker.total_seconds || 0;
+      const elapsedAdd = isTracking ? computeElapsed() : 0;
+      trackedTime = formatElapsed(baseSeconds + elapsedAdd);
+    }
     return `
-      <div class="jira-card">
-        <div class="card-key">${keyHtml}</div>
+      <div class="jira-card" data-issue-key="${esc(issue.key)}">
+        <div style="display: flex; gap: 6px; align-items: center;">
+          <div class="card-key">${keyHtml}</div>
+          <button class="track-btn ${isTracking ? 'active' : ''}" data-key="${esc(issue.key)}" data-summary="${esc(issue.summary)}" onclick="trackIssue(this.getAttribute('data-key'), this.getAttribute('data-summary'))">${isTracking ? 'TRACKING' : 'Track'}</button>
+          ${trackedTime ? `<span class="card-time" data-issue-key="${esc(issue.key)}" style="color: var(--green); font-size: 16px;">${trackedTime}</span>` : ''}
+        </div>
         <div class="card-summary">${esc(issue.summary)}</div>
         <div class="card-meta">
           <span class="type-badge ${typeClass(issue.type)}">${esc(issue.type ?? '?')}</span>
@@ -714,19 +1137,18 @@
     // either no Implement issues, or every Implement issue already has an open PR
     const nextTasks = jira.next_tasks ?? [];
     const myPrKeys = new Set(myPRs.map(p => p.jira_key).filter(Boolean));
-    const implementAllInReview = cols.implement.length > 0
-      && cols.implement.every(i => myPrKeys.has(i.key));
-    const nextMode = cols.implement.length === 0 || implementAllInReview;
+    const nextMode = cols.implement.length === 0;
     document.getElementById('cnt-next').textContent = nextTasks.length;
     document.getElementById('cards-next').innerHTML = nextTasks.length
       ? nextTasks.map(jiraCard).join('')
       : '<div style="padding:8px 10px;color:var(--dim);font-size:14px">–</div>';
 
-    // Column visibility: hide empty columns; NEXT TASK replaces OPEN+IMPLEMENT when unassigned
+    // Column visibility: hide empty columns; NEXT TASK replaces OPEN+IMPLEMENT when unassigned, or shows on demand
+    const showNext = nextMode || forceNextTask;
     const colVisibility = {
       'col-open':      cols.open.length > 0,
       'col-implement': !nextMode && cols.implement.length > 0,
-      'col-next':       nextMode,
+      'col-next':      showNext,
       'col-qa':        qaCount > 0,
       'col-bv':        cols.bv.length > 0,
       'col-resolved':  cols.resolved.length > 0,
@@ -734,7 +1156,7 @@
     for (const [id, show] of Object.entries(colVisibility)) {
       document.getElementById(id).style.display = show ? '' : 'none';
     }
-    // Build grid template: NEXT TASK is leftmost (order:-1) and 2fr; all others 1fr
+    // Build grid template: NEXT TASK is leftmost (order:-1) and 2fr when replacing OPEN+IMPLEMENT; 1fr when forced alongside them
     const nextEl = document.getElementById('col-next');
     const visibleCols = Object.entries(colVisibility).filter(([, show]) => show).map(([id]) => id);
     let gridParts;
@@ -742,6 +1164,10 @@
       nextEl.style.order = '-1';
       const rest = visibleCols.filter(id => id !== 'col-next');
       gridParts = ['2fr', ...rest.map(() => '1fr')];
+    } else if (forceNextTask) {
+      nextEl.style.order = '-1';
+      const rest = visibleCols.filter(id => id !== 'col-next');
+      gridParts = ['1fr', ...rest.map(() => '1fr')];
     } else {
       nextEl.style.order = '';
       gridParts = visibleCols.map(() => '1fr');
@@ -754,6 +1180,17 @@
     // Header poll status
     document.getElementById('poll-status').textContent = `↺ ${fmtTime(bb.updated)}`;
     document.getElementById('sb-lastpoll').textContent = fmtTime(bb.updated);
+
+    // Sprint dates
+    const sprint = jira.sprint;
+    const sprintEl = document.getElementById('sprint-dates');
+    if (sprint && sprint.start_date && sprint.end_date) {
+      const fmt = iso => { const d = new Date(iso); return `${d.getDate()}/${d.getMonth()+1}`; };
+      sprintEl.textContent = `SPRINT: ${fmt(sprint.start_date)}–${fmt(sprint.end_date)}`;
+      sprintEl.title = sprint.name || '';
+    } else {
+      sprintEl.textContent = '';
+    }
   }
 
   // ── Data loading ────────────────────────────────────────────────────────
@@ -773,7 +1210,11 @@
       if (bb.work_hours_enabled != null) workHoursEnabled = bb.work_hours_enabled;
       if (bb.work_start_hour    != null) workStartHour    = bb.work_start_hour;
       if (bb.work_end_hour      != null) workEndHour      = bb.work_end_hour;
+      await loadTimetrack();
+      detectAutoIdle();
       renderAll(bb, jira);
+      renderTrackingBox();
+      startTrackingTick();
     } catch {
       document.getElementById('poll-status').textContent = '⚠ no data – run ./poll.sh';
       ['my-prs-list','reviewer-prs-list'].forEach(id => {

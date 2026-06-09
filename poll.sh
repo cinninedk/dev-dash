@@ -99,13 +99,21 @@ qg_label() {
 # Single curl: returns count of open (unresolved) comments for a PR
 get_unresolved_comments() {
     local project="$1" slug="$2" pr_id="$3"
-    local body
-    body=$(curl -sf \
-        -H "Authorization: Bearer $PASSWORD" \
-        "${STASH_URL}/rest/api/1.0/projects/${project}/repos/${slug}/pull-requests/${pr_id}/comments?state=OPEN&limit=0" \
-        2>/dev/null) || true
-    [ -z "$body" ] && body='{}'
-    echo "$body" | jq -r '.size // 0' 2>/dev/null || echo 0
+    local count=0 start=0 is_last="false"
+    while [ "$is_last" != "true" ]; do
+        local body
+        body=$(curl -sf \
+            -H "Authorization: Bearer $PASSWORD" \
+            "${STASH_URL}/rest/api/1.0/projects/${project}/repos/${slug}/pull-requests/${pr_id}/activities?limit=100&start=${start}" \
+            2>/dev/null) || break
+        [ -z "$body" ] && break
+        local page_count
+        page_count=$(echo "$body" | jq '[.values[]? | select(.action == "COMMENTED" and (.comment.state != "RESOLVED"))] | length' 2>/dev/null || echo 0)
+        count=$((count + page_count))
+        is_last=$(echo "$body" | jq -r '.isLastPage // true')
+        start=$(echo "$body" | jq -r '.nextPageStart // 0')
+    done
+    echo "$count"
 }
 
 # ── Per-poll fetch logic ──
@@ -191,6 +199,25 @@ process_prs_to_json() {
             sonar_url="${qg_line#*	}"
             [[ "$sonar_url" =~ ^https?:// ]] || sonar_url=""
             qg=$(qg_label "$qg_raw")
+
+            # If build is INPROGRESS and no Sonar report attached yet, keep last known QG data
+            if [ "$build_state" = "INPROGRESS" ] && [ -z "$sonar_url" ] && [ "$cached" != "null" ]; then
+                local prev_qg prev_sonar_url prev_bugs prev_smells prev_vulns prev_hotspots
+                prev_qg=$(echo "$cached"        | jq -r '.qg_label // "–"')
+                prev_sonar_url=$(echo "$cached" | jq -r '.sonar_url // ""')
+                prev_bugs=$(echo "$cached"      | jq -r '.bugs // 0')
+                prev_smells=$(echo "$cached"    | jq -r '.smells // 0')
+                prev_vulns=$(echo "$cached"     | jq -r '.vulns // 0')
+                prev_hotspots=$(echo "$cached"  | jq -r '.hotspots // 0')
+                if [ "$prev_qg" != "–" ] && [ -n "$prev_qg" ]; then
+                    qg="$prev_qg"
+                    sonar_url="$prev_sonar_url"
+                    bugs="$prev_bugs"
+                    smells="$prev_smells"
+                    vulns="$prev_vulns"
+                    hotspots="$prev_hotspots"
+                fi
+            fi
 
             # Append cache entry (one compact JSON object per line)
             jq -cn \
@@ -416,13 +443,34 @@ TQA_JSON=$(echo "$TQA_JSON" | jq --argjson impl_keys "${IMPL_KEYS:-[]}" '
   map(. + {implemented_by_me: (.key as $k | ($impl_keys | index($k)) != null)})
 ')
 
+FIRST_PROJECT=$(echo "$JIRA_PROJECTS" | cut -d, -f1 | tr -d '"' | tr -d ' ')
+BOARD_IDS=$(curl -s \
+    "$JIRA_URL/rest/agile/1.0/board?projectKeyOrId=$FIRST_PROJECT&type=scrum&maxResults=50" \
+    -H "Authorization: Bearer $JIRA_PASSWORD" \
+    | jq -r '[.values[]?.id] | .[]')
+
+SPRINT_JSON='null'
+for BOARD_ID in $BOARD_IDS; do
+    CANDIDATE=$(curl -s \
+        "$JIRA_URL/rest/agile/1.0/board/$BOARD_ID/sprint?state=active" \
+        -H "Authorization: Bearer $JIRA_PASSWORD" \
+        | jq '{name: (.values[0].name // ""), start_date: (.values[0].startDate // ""), end_date: (.values[0].endDate // "")}' \
+        2>/dev/null || echo 'null')
+    if [ "$(echo "$CANDIDATE" | jq -r '.start_date')" != "" ] && \
+       [ "$(echo "$CANDIDATE" | jq -r '.start_date')" != "null" ]; then
+        SPRINT_JSON="$CANDIDATE"
+        break
+    fi
+done
+
 jq -n \
     --argjson issues "$ISSUES_JSON" \
     --argjson tqa_issues "$TQA_JSON" \
     --argjson next_tasks "$NEXT_JSON" \
+    --argjson sprint "$SPRINT_JSON" \
     --arg jira_url "$JIRA_URL" \
     --arg updated "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
-    '{issues:$issues, tqa_issues:$tqa_issues, next_tasks:$next_tasks, jira_url:$jira_url, updated:$updated}' \
+    '{issues:$issues, tqa_issues:$tqa_issues, next_tasks:$next_tasks, sprint:$sprint, jira_url:$jira_url, updated:$updated}' \
     > "$JR_OUT.tmp" && mv "$JR_OUT.tmp" "$JR_OUT"
 
 log "Jira: $(echo "$MINE_JSON" | jq 'length') mine + $(echo "$IMPL_JSON" | jq 'length') implemented = $(echo "$ISSUES_JSON" | jq 'length') issues, $(echo "$TQA_JSON" | jq 'length') tekn_qa"

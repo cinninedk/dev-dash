@@ -1,0 +1,114 @@
+{
+  "updated": "2026-06-03T10:45:00Z",
+  "jira_url": "https://jira.example.com",
+  "issues": [
+    {
+      "key": "STILLOGIN-712",
+      "summary": "Implement SAML token refresh for long-lived sessions",
+      "status": "IMPLEMENT",
+      "type": "Story",
+      "priority": "High",
+      "updated": "2026-06-03T09:12:00+02:00",
+      "teknisk_qa": false,
+      "unassigned": false
+    },
+    {
+      "key": "STILLOGIN-718",
+      "summary": "Fix NullPointerException in session cleanup scheduler",
+      "status": "IMPLEMENT",
+      "type": "Bug",
+      "priority": "Medium",
+      "updated": "2026-06-02T09:05:00+02:00",
+      "teknisk_qa": false,
+      "unassigned": false
+    },
+    {
+      "key": "STILLOGIN-698",
+      "summary": "Migrate legacy login handler to new auth pipeline",
+      "status": "QUALITY ASSURANCE",
+      "type": "Story",
+      "priority": "High",
+      "updated": "2026-05-28T14:30:00+02:00",
+      "teknisk_qa": false,
+      "unassigned": false
+    },
+    {
+      "key": "STILLOGIN-689",
+      "summary": "Update OIDC provider test harness with mock server",
+      "status": "BUSINESS VALIDATION",
+      "type": "Story",
+      "priority": "Medium",
+      "updated": "2026-05-29T11:00:00+02:00",
+      "teknisk_qa": false,
+      "unassigned": false
+    },
+    {
+      "key": "STILLOGIN-677",
+      "summary": "Remove deprecated BasicAuth fallback endpoint",
+      "status": "RESOLVED",
+      "type": "Story",
+      "priority": "Low",
+      "updated": "2026-05-28T15:00:00+02:00",
+      "teknisk_qa": false,
+      "unassigned": false
+    }
+  ],
+  "tqa_issues": [
+    {
+      "key": "UDBYDERPORTAL-234",
+      "summary": "Validate OAuth redirect URIs in partner onboarding flow",
+      "status": "QUALITY ASSURANCE",
+      "type": "Story",
+      "priority": "High",
+      "updated": "2026-06-02T16:45:00+02:00",
+      "teknisk_qa": true,
+      "assigned_to_me": false,
+      "unassigned": true,
+      "implemented_by_me": false
+    },
+    {
+      "key": "MITUNILOGIN-567",
+      "summary": "Fix PKCE code challenge verification for mobile clients",
+      "status": "QUALITY ASSURANCE",
+      "type": "Bug",
+      "priority": "High",
+      "updated": "2026-06-03T08:30:00+02:00",
+      "teknisk_qa": true,
+      "assigned_to_me": false,
+      "unassigned": true,
+      "implemented_by_me": false
+    },
+    {
+      "key": "STILLOGIN-701",
+      "summary": "Add rate limiting to /api/login endpoint",
+      "status": "QUALITY ASSURANCE",
+      "type": "Story",
+      "priority": "Medium",
+      "updated": "2026-06-01T14:20:00+02:00",
+      "teknisk_qa": true,
+      "assigned_to_me": false,
+      "unassigned": true,
+      "implemented_by_me": false
+    }
+  ],
+  "next_tasks": [
+    {
+      "key": "STILLOGIN-721",
+      "summary": "Implement passwordless login via magic link",
+      "status": "OPEN",
+      "type": "Story",
+      "priority": "Medium",
+      "updated": "2026-05-26T10:00:00+02:00",
+      "teknisk_qa": false
+    },
+    {
+      "key": "STILLOGIN-720",
+      "summary": "Add MFA enforcement for admin role accounts",
+      "status": "OPEN",
+      "type": "Story",
+      "priority": "High",
+      "updated": "2026-05-26T09:00:00+02:00",
+      "teknisk_qa": true
+    }
+  ]
+}
