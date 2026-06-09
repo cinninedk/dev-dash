@@ -163,6 +163,72 @@ def _load_secrets():
     return stash_url, token
 
 
+def _fetch_sonar_issues(pr_id: str) -> str:
+    sonar_token = (ROOT / "secrets" / "sonar-token").read_text().strip()
+    bb = json.loads((DATA_DIR / "bitbucket.json").read_text())
+    all_prs = bb.get("my_prs", []) + bb.get("reviewer_prs", [])
+    pr = next((p for p in all_prs if str(p.get("id")) == str(pr_id)), None)
+    if pr is None:
+        raise KeyError(f"PR #{pr_id} not found in data/bitbucket.json")
+
+    sonar_url = pr.get("sonar_url", "")
+    if not sonar_url:
+        raise ValueError(f"No SonarQube URL for PR #{pr_id}")
+
+    parsed = urllib.parse.urlparse(sonar_url)
+    sonar_base = f"{parsed.scheme}://{parsed.netloc}"
+    qs = urllib.parse.parse_qs(parsed.query)
+    project_key = (qs.get("id") or [None])[0]
+    branch = (qs.get("branch") or [None])[0] or pr.get("branch", "")
+
+    if not project_key:
+        raise ValueError(f"Cannot parse project key from sonar_url: {sonar_url}")
+
+    headers = {"Authorization": f"Bearer {sonar_token}"}
+
+    # Fetch quality gate conditions (reliable — scoped to project+branch)
+    qg_params: dict = {"projectKey": project_key}
+    if branch:
+        qg_params["branch"] = branch
+    qg_url = f"{sonar_base}/api/qualitygates/project_status?" + urllib.parse.urlencode(qg_params)
+    with urllib.request.urlopen(urllib.request.Request(qg_url, headers=headers), timeout=15) as resp:
+        qg_data = json.loads(resp.read())
+
+    conditions = qg_data.get("projectStatus", {}).get("conditions", [])
+    failing = [c for c in conditions if c.get("status") == "ERROR"]
+
+    lines = [
+        f"PR #{pr['id']}: {pr['repo']}",
+        f"Branch: {pr.get('branch', '')}",
+        f"Quality Gate: {pr.get('qg_label', '?')}",
+        "",
+        f"Failing conditions ({len(failing)}):",
+    ]
+    metric_labels = {
+        "new_violations": "New violations",
+        "new_bugs": "New bugs",
+        "new_vulnerabilities": "New vulnerabilities",
+        "new_security_hotspots": "New security hotspots",
+        "new_code_smells": "New code smells",
+        "new_coverage": "New coverage",
+        "new_duplicated_lines_density": "New duplications",
+        "reliability_rating": "Reliability rating",
+        "security_rating": "Security rating",
+        "sqale_rating": "Maintainability rating",
+    }
+    comparator_labels = {"GT": ">", "LT": "<", "EQ": "=", "NE": "≠"}
+    for c in failing:
+        metric = c.get("metricKey", "")
+        label = metric_labels.get(metric, metric)
+        cmp = comparator_labels.get(c.get("comparator", ""), c.get("comparator", ""))
+        threshold = c.get("errorThreshold", "?")
+        actual = c.get("actualValue", "?")
+        lines.append(f"  {label}: {actual} (threshold: {cmp} {threshold})")
+
+    lines += ["", f"View in SonarQube: {sonar_url}"]
+    return "\n".join(lines)
+
+
 def _fetch_pr_comments(pr_id: str) -> str:
     stash_url, token = _load_secrets()
     headers = {"Authorization": f"Bearer {token}"}
@@ -232,6 +298,9 @@ class Handler(http.server.SimpleHTTPRequestHandler):
         if self.path.startswith("/api/comments"):
             self._handle_comments()
             return
+        if self.path.startswith("/api/sonar-issues"):
+            self._handle_sonar_issues()
+            return
         if self.path.startswith("/data/") and self.path.endswith(".json"):
             if TEST_MODE:
                 self._serve_test_data()
@@ -276,6 +345,29 @@ class Handler(http.server.SimpleHTTPRequestHandler):
         self.end_headers()
         self.wfile.write(body)
 
+    def _handle_sonar_issues(self):
+        qs = urllib.parse.parse_qs(urllib.parse.urlparse(self.path).query)
+        pr_id = (qs.get("pr_id") or [None])[0]
+        if not pr_id:
+            self._respond(400, "Missing pr_id parameter")
+            return
+        try:
+            body = _fetch_sonar_issues(pr_id).encode()
+        except KeyError as e:
+            self._respond(404, str(e))
+            return
+        except ValueError as e:
+            self._respond(400, str(e))
+            return
+        except Exception as e:
+            self._respond(502, f"SonarQube error: {e}")
+            return
+        self.send_response(200)
+        self.send_header("Content-Type", "text/plain; charset=utf-8")
+        self.send_header("Content-Length", str(len(body)))
+        self.end_headers()
+        self.wfile.write(body)
+
     def do_POST(self):
         if self.path == "/api/track":
             self._handle_track()
@@ -302,12 +394,33 @@ class Handler(http.server.SimpleHTTPRequestHandler):
                 self._respond(400, "Missing key")
                 return
             _close_active(state)
-            _start_tracker(state, key, summary)
+            reopened = False
+            tracker = state.get("trackers", {}).get(key)
+            if tracker:
+                segs = tracker.get("segments") or []
+                if segs:
+                    last_seg = max(segs, key=lambda s: s.get("ended_at", ""))
+                    try:
+                        gap = (datetime.datetime.now().astimezone() - _parse_dt(last_seg["ended_at"])).total_seconds()
+                        if gap < 60:
+                            segs.remove(last_seg)
+                            _recompute_total(tracker)
+                            state["active"] = {"key": key, "started_at": last_seg["started_at"]}
+                            reopened = True
+                    except Exception:
+                        pass
+            if not reopened:
+                _start_tracker(state, key, summary)
         elif action == "idle":
             _close_active(state)
             _start_tracker(state, IDLE_KEY, "Idle")
         elif action in ("stop", "stopall"):
             _close_active(state)
+        elif action == "edit_active":
+            code, err = self._do_edit_active(state, req)
+            if err:
+                self._respond(code, err)
+                return
         elif action == "add_segment":
             err = self._do_add_segment(state, req)
             if err:
@@ -329,6 +442,20 @@ class Handler(http.server.SimpleHTTPRequestHandler):
 
         _write_timetrack(state)
         self._respond_json(200, state)
+
+    def _do_edit_active(self, state, req):
+        """Update started_at of the currently active segment."""
+        active = state.get("active")
+        if not active:
+            return 400, "No active tracking"
+        try:
+            started = _parse_dt(req.get("started_at", ""))
+        except ValueError:
+            return 400, "Invalid start datetime"
+        if started > datetime.datetime.now().astimezone():
+            return 400, "Start time is in the future"
+        active["started_at"] = started.isoformat(timespec="seconds")
+        return 200, None
 
     def _do_add_segment(self, state, req):
         """Append a manual segment, creating the tracker if needed. Returns error str or None."""
