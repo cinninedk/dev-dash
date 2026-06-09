@@ -200,6 +200,25 @@ process_prs_to_json() {
             [[ "$sonar_url" =~ ^https?:// ]] || sonar_url=""
             qg=$(qg_label "$qg_raw")
 
+            # If build is INPROGRESS and no Sonar report attached yet, keep last known QG data
+            if [ "$build_state" = "INPROGRESS" ] && [ -z "$sonar_url" ] && [ "$cached" != "null" ]; then
+                local prev_qg prev_sonar_url prev_bugs prev_smells prev_vulns prev_hotspots
+                prev_qg=$(echo "$cached"        | jq -r '.qg_label // "–"')
+                prev_sonar_url=$(echo "$cached" | jq -r '.sonar_url // ""')
+                prev_bugs=$(echo "$cached"      | jq -r '.bugs // 0')
+                prev_smells=$(echo "$cached"    | jq -r '.smells // 0')
+                prev_vulns=$(echo "$cached"     | jq -r '.vulns // 0')
+                prev_hotspots=$(echo "$cached"  | jq -r '.hotspots // 0')
+                if [ "$prev_qg" != "–" ] && [ -n "$prev_qg" ]; then
+                    qg="$prev_qg"
+                    sonar_url="$prev_sonar_url"
+                    bugs="$prev_bugs"
+                    smells="$prev_smells"
+                    vulns="$prev_vulns"
+                    hotspots="$prev_hotspots"
+                fi
+            fi
+
             # Append cache entry (one compact JSON object per line)
             jq -cn \
                 --argjson id "$id" \
