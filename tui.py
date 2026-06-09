@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-DEV-DASHBOARD  –  terminal TUI (curses)
+Jiraffe  –  terminal TUI (curses)
 Reads data/bitbucket.json and data/jira.json (written by poll.sh every 60s).
 Auto-refreshes every 60 s during 08:00–18:00 Mon–Fri.
 Quit: q or Ctrl-C.
@@ -264,7 +264,7 @@ def render_header(win, session_start: float, next_refresh_at: float | None):
     max_y, max_x = win.getmaxyx()
     win.erase()
     now_str = datetime.now().strftime("%a %d/%m  %H:%M:%S")
-    title   = "◆ DEV-DASHBOARD"
+    title   = "◆ JIRAFFE"
     safe_addstr(win, 0, 1, title, ca(C_BRIGHT, bold=True))
 
     uptime_s = int(time.time() - session_start)
@@ -540,7 +540,7 @@ def render_statusbar(win, bb: dict | None, next_at: float | None, session_start:
 def render_no_data(win):
     max_y, max_x = win.getmaxyx()
     win.erase()
-    msg1 = "◆ DEV-DASHBOARD"
+    msg1 = "◆ JIRAFFE"
     msg2 = "no data found — run ./poll.sh to populate data/"
     msg3 = "press q to quit"
     y = max_y // 2 - 2
