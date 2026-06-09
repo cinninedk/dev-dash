@@ -3,7 +3,7 @@
   "trackers": {
     "STILLOGIN-698": {
       "summary": "Migrate legacy login handler to new auth pipeline",
-      "total_seconds": 45000,
+      "total_seconds": 45005,
       "segments": [
         {
           "id": "aaa0001bb001",
@@ -28,6 +28,18 @@
           "started_at": "2026-05-26T13:30:00+02:00",
           "ended_at": "2026-05-26T16:30:00+02:00",
           "seconds": 10800
+        },
+        {
+          "id": "341978424ca1",
+          "started_at": "2026-06-03T22:45:40+02:00",
+          "ended_at": "2026-06-03T22:45:44+02:00",
+          "seconds": 4
+        },
+        {
+          "id": "417e1bbce161",
+          "started_at": "2026-06-03T23:01:09+02:00",
+          "ended_at": "2026-06-03T23:01:10+02:00",
+          "seconds": 1
         }
       ]
     },
@@ -158,5 +170,5 @@
       ]
     }
   },
-  "updated": "2026-06-03T22:41:44+02:00"
+  "updated": "2026-06-03T23:01:10+02:00"
 }
