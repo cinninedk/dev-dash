@@ -443,13 +443,34 @@ TQA_JSON=$(echo "$TQA_JSON" | jq --argjson impl_keys "${IMPL_KEYS:-[]}" '
   map(. + {implemented_by_me: (.key as $k | ($impl_keys | index($k)) != null)})
 ')
 
+FIRST_PROJECT=$(echo "$JIRA_PROJECTS" | cut -d, -f1 | tr -d '"' | tr -d ' ')
+BOARD_IDS=$(curl -s \
+    "$JIRA_URL/rest/agile/1.0/board?projectKeyOrId=$FIRST_PROJECT&type=scrum&maxResults=50" \
+    -H "Authorization: Bearer $JIRA_PASSWORD" \
+    | jq -r '[.values[]?.id] | .[]')
+
+SPRINT_JSON='null'
+for BOARD_ID in $BOARD_IDS; do
+    CANDIDATE=$(curl -s \
+        "$JIRA_URL/rest/agile/1.0/board/$BOARD_ID/sprint?state=active" \
+        -H "Authorization: Bearer $JIRA_PASSWORD" \
+        | jq '{name: (.values[0].name // ""), start_date: (.values[0].startDate // ""), end_date: (.values[0].endDate // "")}' \
+        2>/dev/null || echo 'null')
+    if [ "$(echo "$CANDIDATE" | jq -r '.start_date')" != "" ] && \
+       [ "$(echo "$CANDIDATE" | jq -r '.start_date')" != "null" ]; then
+        SPRINT_JSON="$CANDIDATE"
+        break
+    fi
+done
+
 jq -n \
     --argjson issues "$ISSUES_JSON" \
     --argjson tqa_issues "$TQA_JSON" \
     --argjson next_tasks "$NEXT_JSON" \
+    --argjson sprint "$SPRINT_JSON" \
     --arg jira_url "$JIRA_URL" \
     --arg updated "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
-    '{issues:$issues, tqa_issues:$tqa_issues, next_tasks:$next_tasks, jira_url:$jira_url, updated:$updated}' \
+    '{issues:$issues, tqa_issues:$tqa_issues, next_tasks:$next_tasks, sprint:$sprint, jira_url:$jira_url, updated:$updated}' \
     > "$JR_OUT.tmp" && mv "$JR_OUT.tmp" "$JR_OUT"
 
 log "Jira: $(echo "$MINE_JSON" | jq 'length') mine + $(echo "$IMPL_JSON" | jq 'length') implemented = $(echo "$ISSUES_JSON" | jq 'length') issues, $(echo "$TQA_JSON" | jq 'length') tekn_qa"
