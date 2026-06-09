@@ -99,13 +99,21 @@ qg_label() {
 # Single curl: returns count of open (unresolved) comments for a PR
 get_unresolved_comments() {
     local project="$1" slug="$2" pr_id="$3"
-    local body
-    body=$(curl -sf \
-        -H "Authorization: Bearer $PASSWORD" \
-        "${STASH_URL}/rest/api/1.0/projects/${project}/repos/${slug}/pull-requests/${pr_id}/comments?state=OPEN&limit=0" \
-        2>/dev/null) || true
-    [ -z "$body" ] && body='{}'
-    echo "$body" | jq -r '.size // 0' 2>/dev/null || echo 0
+    local count=0 start=0 is_last="false"
+    while [ "$is_last" != "true" ]; do
+        local body
+        body=$(curl -sf \
+            -H "Authorization: Bearer $PASSWORD" \
+            "${STASH_URL}/rest/api/1.0/projects/${project}/repos/${slug}/pull-requests/${pr_id}/activities?limit=100&start=${start}" \
+            2>/dev/null) || break
+        [ -z "$body" ] && break
+        local page_count
+        page_count=$(echo "$body" | jq '[.values[]? | select(.action == "COMMENTED" and (.comment.state != "RESOLVED"))] | length' 2>/dev/null || echo 0)
+        count=$((count + page_count))
+        is_last=$(echo "$body" | jq -r '.isLastPage // true')
+        start=$(echo "$body" | jq -r '.nextPageStart // 0')
+    done
+    echo "$count"
 }
 
 # ── Per-poll fetch logic ──
