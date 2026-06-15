@@ -1,25 +1,25 @@
 #!/bin/bash
 # poll.sh — writes data/bitbucket.json and data/jira.json for the dashboard
 
-SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
-source "$SCRIPT_DIR/secrets/config"
-PASSWORD=$(cat "$SCRIPT_DIR/secrets/bitbucket-token")
-JIRA_PASSWORD=$(cat "$SCRIPT_DIR/secrets/jira-token")
-SONAR_PASSWORD=$(cat "$SCRIPT_DIR/secrets/sonar-token")
+ROOT="$(cd "$(dirname "$0")/.." && pwd)"
+source "$ROOT/secrets/config"
+PASSWORD=$(cat "$ROOT/secrets/bitbucket-token")
+JIRA_PASSWORD=$(cat "$ROOT/secrets/jira-token")
+SONAR_PASSWORD=$(cat "$ROOT/secrets/sonar-token")
 
 # Derive Bitbucket username from own PRs (may differ from USERNAME in config)
 BB_USERNAME=$(curl -s -H "Authorization: Bearer $PASSWORD" \
     "$STASH_URL/rest/api/1.0/dashboard/pull-requests?state=OPEN&role=AUTHOR&limit=1" \
     | jq -r '.values[0].author.user.name // ""')
 
-OUT_DIR="$(dirname "$0")/data"
+OUT_DIR="$ROOT/data"
 mkdir -p "$OUT_DIR"
 BB_OUT="$OUT_DIR/bitbucket.json"
 JR_OUT="$OUT_DIR/jira.json"
 CACHE_FILE="$OUT_DIR/.build-cache.json"
 
 log() { echo "[$(date '+%H:%M:%S')] $*"; }
-cfg() { grep "^$1:" "$SCRIPT_DIR/config.yaml" 2>/dev/null | awk -F': *' '{print $2}'; }
+cfg() { grep "^$1:" "$ROOT/config.yaml" 2>/dev/null | awk -F': *' '{print $2}'; }
 
 # ── Helpers ──
 
@@ -108,7 +108,7 @@ get_unresolved_comments() {
             2>/dev/null) || break
         [ -z "$body" ] && break
         local page_count
-        page_count=$(echo "$body" | jq '[.values[]? | select(.action == "COMMENTED" and (.comment.state != "RESOLVED"))] | length' 2>/dev/null || echo 0)
+        page_count=$(echo "$body" | jq '[.values[]? | select(.action == "COMMENTED" and (.comment.parent == null) and (.comment.state != "RESOLVED"))] | length' 2>/dev/null || echo 0)
         count=$((count + page_count))
         is_last=$(echo "$body" | jq -r '.isLastPage // true')
         start=$(echo "$body" | jq -r '.nextPageStart // 0')
@@ -345,19 +345,7 @@ jq -n \
 # ── Jira ──
 log "Fetching Jira issues..."
 
-# Query 1: issues currently assigned to me (Open/Reopened/Implement)
-# Include current sprint + previous sprint's QA/BV items
-JQL_MINE="(sprint in openSprints() OR (sprint in closedSprints() AND status in (\"Quality Assurance\",\"Business Validation\"))) AND project in ($JIRA_PROJECTS) AND assignee = currentUser() AND status in (\"Open\",\"Reopened\",\"Implement\",\"Quality Assurance\",\"Business Validation\") ORDER BY updated DESC"
-
-# Query 2: issues I implemented (moved Implement → QA), now in QA/BV/Resolved
-# Include current sprint + previous sprint's QA/BV items
-JQL_IMPL="(sprint in openSprints() OR (sprint in closedSprints() AND status in (\"Quality Assurance\",\"Business Validation\"))) AND project in ($JIRA_PROJECTS) AND status in (\"Quality Assurance\",\"Business Validation\",\"Resolved\") AND status CHANGED FROM \"Implement\" TO \"Quality Assurance\" BY currentUser() ORDER BY updated DESC"
-
-# Query 3: all sprint QA issues with teknisk_QA label (any assignee)
-JQL_TQA="sprint in openSprints() AND project in ($JIRA_PROJECTS) AND status = \"Quality Assurance\" AND labels = \"teknisk_QA\" ORDER BY updated DESC"
-
-# Query 4: next task candidates — unassigned stories in active sprint, not yet in QA/BV/Resolved
-JQL_NEXT="sprint in openSprints() AND project in ($JIRA_PROJECTS) AND issuetype = Story AND status not in (Resolved, \"Quality Assurance\", \"Business Validation\") AND assignee is EMPTY ORDER BY updated DESC"
+# JQL queries are defined in secrets/config as JQL_MINE, JQL_IMPL, JQL_TQA, JQL_NEXT
 
 JQ_PROJ='[.issues[]? | {
     key:        .key,
@@ -367,7 +355,8 @@ JQ_PROJ='[.issues[]? | {
     priority:   .fields.priority.name,
     updated:    .fields.updated,
     teknisk_qa: ((.fields.labels // []) | any(. == "teknisk_QA")),
-    unassigned: (.fields.assignee == null)
+    unassigned: (.fields.assignee == null),
+    blocked_by: [(.fields.issuelinks // [])[] | select(.type.inwardDesc == "is blocked by" and .inwardIssue != null) | {key: .inwardIssue.key, status: (.inwardIssue.fields.status.name | ascii_upcase)}]
 }]'
 
 JQ_PROJ_TQA='[.issues[]? | {
@@ -388,7 +377,7 @@ MINE_JSON=$(curl -s \
     --get \
     --data-urlencode "jql=$JQL_MINE" \
     --data-urlencode "maxResults=50" \
-    --data-urlencode "fields=summary,status,issuetype,priority,updated,labels,assignee" \
+    --data-urlencode "fields=summary,status,issuetype,priority,updated,labels,assignee,issuelinks" \
     | jq "$JQ_PROJ" 2>/dev/null || echo "[]")
 
 IMPL_JSON=$(curl -s \
@@ -397,7 +386,7 @@ IMPL_JSON=$(curl -s \
     --get \
     --data-urlencode "jql=$JQL_IMPL" \
     --data-urlencode "maxResults=50" \
-    --data-urlencode "fields=summary,status,issuetype,priority,updated,labels,assignee" \
+    --data-urlencode "fields=summary,status,issuetype,priority,updated,labels,assignee,issuelinks" \
     | jq "$JQ_PROJ" 2>/dev/null || echo "[]")
 
 TQA_JSON=$(curl -s \
@@ -409,22 +398,38 @@ TQA_JSON=$(curl -s \
     --data-urlencode "fields=summary,status,issuetype,priority,updated,labels,assignee" \
     | jq --arg username "$USERNAME" "$JQ_PROJ_TQA" 2>/dev/null || echo "[]")
 
-NEXT_JSON=$(curl -s \
+_JQ_NEXT='[.issues[]? | {
+    key:        .key,
+    summary:    .fields.summary,
+    status:     (.fields.status.name | ascii_upcase),
+    type:       .fields.issuetype.name,
+    priority:   .fields.priority.name,
+    updated:    .fields.updated,
+    teknisk_qa: ((.fields.labels // []) | any(. == "teknisk_QA"))
+}]'
+
+NEXT_CURRENT=$(curl -s \
     "$JIRA_URL/rest/api/2/search" \
     -H "Authorization: Bearer $JIRA_PASSWORD" \
     --get \
-    --data-urlencode "jql=$JQL_NEXT" \
+    --data-urlencode "jql=$JQL_NEXT_CURRENT" \
     --data-urlencode "maxResults=50" \
-    --data-urlencode "fields=summary,status,issuetype,priority,updated,labels,epic" \
-    | jq '[.issues[]? | select(((.fields.epic.name // .fields.epic.summary // "") | ascii_downcase | test("produktejerskab")) | not) | {
-        key:        .key,
-        summary:    .fields.summary,
-        status:     (.fields.status.name | ascii_upcase),
-        type:       .fields.issuetype.name,
-        priority:   .fields.priority.name,
-        updated:    .fields.updated,
-        teknisk_qa: ((.fields.labels // []) | any(. == "teknisk_QA"))
-    }]' 2>/dev/null || echo "[]")
+    --data-urlencode "fields=summary,status,issuetype,priority,updated,labels" \
+    | jq "$_JQ_NEXT" 2>/dev/null || echo "[]")
+
+NEXT_FUTURE=$(curl -s \
+    "$JIRA_URL/rest/api/2/search" \
+    -H "Authorization: Bearer $JIRA_PASSWORD" \
+    --get \
+    --data-urlencode "jql=$JQL_NEXT_FUTURE" \
+    --data-urlencode "maxResults=50" \
+    --data-urlencode "fields=summary,status,issuetype,priority,updated,labels" \
+    | jq "$_JQ_NEXT" 2>/dev/null || echo "[]")
+
+NEXT_JSON=$(jq -n \
+    --argjson current "$NEXT_CURRENT" \
+    --argjson future  "$NEXT_FUTURE" \
+    '($current | map(. + {sprint_type:"current"})) + ($future | map(. + {sprint_type:"next"}))')
 
 MINE_JSON=${MINE_JSON:-[]}
 IMPL_JSON=${IMPL_JSON:-[]}
@@ -450,6 +455,7 @@ BOARD_IDS=$(curl -s \
     | jq -r '[.values[]?.id] | .[]')
 
 SPRINT_JSON='null'
+ACTIVE_BOARD_ID=""
 for BOARD_ID in $BOARD_IDS; do
     CANDIDATE=$(curl -s \
         "$JIRA_URL/rest/agile/1.0/board/$BOARD_ID/sprint?state=active" \
@@ -459,9 +465,13 @@ for BOARD_ID in $BOARD_IDS; do
     if [ "$(echo "$CANDIDATE" | jq -r '.start_date')" != "" ] && \
        [ "$(echo "$CANDIDATE" | jq -r '.start_date')" != "null" ]; then
         SPRINT_JSON="$CANDIDATE"
+        ACTIVE_BOARD_ID="$BOARD_ID"
         break
     fi
 done
+
+BACKLOG_URL=""
+[ -n "$ACTIVE_BOARD_ID" ] && BACKLOG_URL="${JIRA_URL}/secure/RapidBoard.jspa?rapidView=${ACTIVE_BOARD_ID}&view=planning"
 
 jq -n \
     --argjson issues "$ISSUES_JSON" \
@@ -469,8 +479,9 @@ jq -n \
     --argjson next_tasks "$NEXT_JSON" \
     --argjson sprint "$SPRINT_JSON" \
     --arg jira_url "$JIRA_URL" \
+    --arg backlog_url "$BACKLOG_URL" \
     --arg updated "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
-    '{issues:$issues, tqa_issues:$tqa_issues, next_tasks:$next_tasks, sprint:$sprint, jira_url:$jira_url, updated:$updated}' \
+    '{issues:$issues, tqa_issues:$tqa_issues, next_tasks:$next_tasks, sprint:$sprint, jira_url:$jira_url, backlog_url:$backlog_url, updated:$updated}' \
     > "$JR_OUT.tmp" && mv "$JR_OUT.tmp" "$JR_OUT"
 
 log "Jira: $(echo "$MINE_JSON" | jq 'length') mine + $(echo "$IMPL_JSON" | jq 'length') implemented = $(echo "$ISSUES_JSON" | jq 'length') issues, $(echo "$TQA_JSON" | jq 'length') tekn_qa"

@@ -242,6 +242,18 @@
       0%, 100% { opacity: 1; }
       50% { opacity: 0.3; }
     }
+    @keyframes breathe-red {
+      0%, 100% { opacity: 0.45; text-shadow: none; }
+      50% { opacity: 1; text-shadow: 0 0 6px var(--red), 0 0 14px var(--red); }
+    }
+    #not-tracking {
+      display: none;
+      color: var(--red);
+      font-size: 14px;
+      letter-spacing: 1px;
+      flex-shrink: 0;
+      animation: breathe-red 2.8s ease-in-out infinite;
+    }
 
     #tracking-box {
       display: flex;
@@ -249,8 +261,8 @@
       border-left: 1px solid var(--border);
       background: var(--panel);
       padding: 8px;
-      min-width: 220px;
-      max-width: 260px;
+      min-width: 240px;
+      max-width: 280px;
     }
 
     .tracking-header { color: var(--dim); font-size: 14px; letter-spacing: 1px; margin-bottom: 6px; }
@@ -360,7 +372,7 @@
     /* ── JIRA KANBAN ── */
     #kanban-cols {
       display: grid;
-      grid-template-columns: repeat(5, 1fr);
+      grid-template-columns: repeat(5, minmax(min-content, 1fr));
       grid-auto-rows: 1fr;
       flex: 1;
       overflow: hidden;
@@ -392,6 +404,7 @@
       display: flex;
       justify-content: space-between;
       flex-shrink: 0;
+      white-space: nowrap;
     }
     .col-count { color: var(--bright); }
     .review-hdr { color: var(--bright); border-bottom-color: var(--bright); }
@@ -424,6 +437,8 @@
     .t-bug   { color: var(--red);  border-color: var(--red); }
     .t-task  { color: var(--dim);  border-color: var(--border); }
     .tqa-badge { font-size: 14px; padding: 0 4px; border: 1px solid var(--blue); color: var(--blue); letter-spacing: 1px; }
+    .blocked-badge { font-size: 13px; padding: 1px 6px; border: 1px solid var(--red); color: var(--red); letter-spacing: 0.5px; animation: glow-red 1.4s ease-in-out infinite; white-space: nowrap; }
+    @keyframes glow-red { 0%,100% { box-shadow: 0 0 3px #f0585855; color: #f05858; } 50% { box-shadow: 0 0 10px #f05858cc; color: #ff9090; border-color: #ff9090; } }
     .t-other { color: var(--dim);  border-color: var(--border); }
 
     .prio      { font-size: 16px; }
@@ -495,6 +510,7 @@
   <header>
     <div id="logo">◆ JIRAFFE</div>
     <div id="poll-status">–</div>
+    <div id="not-tracking">● NOT TRACKING</div>
     <div id="header-clock"></div>
     <div id="sprint-dates" style="color:var(--dim);font-size:15px;letter-spacing:0.5px;"></div>
     <a id="timesheet-link" href="time.html">⏱ TIMESHEET</a>
@@ -540,7 +556,7 @@
             <div id="cards-implement"></div>
           </div>
           <div class="kanban-col" id="col-next" style="display:none">
-            <div class="col-header">NEXT TASK <span class="col-count" id="cnt-next">0</span></div>
+            <div class="col-header">NEXT TASK <span class="col-count" id="cnt-next">0</span><a id="backlog-link" href="#" target="_blank" style="display:none; margin-left:8px; font-size:13px; color:var(--dim); text-decoration:none; letter-spacing:0;" title="Open backlog in Jira">backlog ↗</a></div>
             <div id="cards-next"></div>
           </div>
           <div class="kanban-col" id="col-qa">
@@ -682,9 +698,7 @@
     document.getElementById('cards-qa').innerHTML = qaRegular.map(jiraCard).join('') ||
       '<div style="padding:8px 10px;color:var(--dim);font-size:14px">–</div>';
     const nextTasks = jiraData.next_tasks ?? [];
-    document.getElementById('cards-next').innerHTML = nextTasks.length
-      ? nextTasks.map(jiraCard).join('')
-      : '<div style="padding:8px 10px;color:var(--dim);font-size:14px">–</div>';
+    document.getElementById('cards-next').innerHTML = renderNextTasks(nextTasks);
   }
 
   function formatElapsed(seconds) {
@@ -705,23 +719,76 @@
     return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
   }
 
+  function todayStart() {
+    const now = new Date();
+    const start = new Date(now);
+    start.setHours(5, 0, 0, 0);
+    if (now < start) start.setDate(start.getDate() - 1);
+    return start;
+  }
+
   function computeDailyTotal() {
+    const cutoff = todayStart().getTime();
     const trackers = ttData?.trackers ?? {};
     const active = ttData?.active;
-    const today = todayStr();
     let secs = 0;
-    for (const [key, tracker] of Object.entries(trackers)) {
+    for (const tracker of Object.values(trackers)) {
       for (const seg of tracker.segments ?? []) {
-        const d = new Date(seg.started_at);
-        const ds = `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
-        if (ds === today) secs += seg.seconds || 0;
+        if (new Date(seg.started_at).getTime() >= cutoff) secs += seg.seconds || 0;
       }
     }
-    if (active) {
-      const d = new Date(active.started_at);
-      const ds = `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
-      if (ds === today) secs += computeElapsed();
+    if (active && new Date(active.started_at).getTime() >= cutoff) secs += computeElapsed();
+    return secs;
+  }
+
+  function dailySecondsForKey(key) {
+    const cutoff = todayStart().getTime();
+    const tracker = ttData?.trackers?.[key];
+    if (!tracker) return 0;
+    const active = ttData?.active;
+    let secs = (tracker.segments ?? [])
+      .filter(s => new Date(s.started_at).getTime() >= cutoff)
+      .reduce((sum, s) => sum + (s.seconds || 0), 0);
+    if (active?.key === key && new Date(active.started_at).getTime() >= cutoff)
+      secs += computeElapsed();
+    return secs;
+  }
+
+  function sprintRange() {
+    const sprint = jiraData?.sprint;
+    if (!sprint?.start_date || !sprint?.end_date) return null;
+    return { start: new Date(sprint.start_date), end: new Date(sprint.end_date) };
+  }
+
+  function segInSprint(isoStr, range) {
+    const t = new Date(isoStr).getTime();
+    return t >= range.start.getTime() && t < range.end.getTime();
+  }
+
+  function computeSprintSecondsForKey(key, range) {
+    if (!range) return null;
+    const tracker = ttData?.trackers?.[key];
+    if (!tracker) return 0;
+    const active = ttData?.active;
+    let secs = (tracker.segments ?? [])
+      .filter(s => segInSprint(s.started_at, range))
+      .reduce((sum, s) => sum + (s.seconds || 0), 0);
+    if (active?.key === key && segInSprint(active.started_at, range))
+      secs += computeElapsed();
+    return secs;
+  }
+
+  function computeSprintTotal(range) {
+    if (!range) return null;
+    const trackers = ttData?.trackers ?? {};
+    const active = ttData?.active;
+    let secs = 0;
+    for (const [key, tracker] of Object.entries(trackers)) {
+      secs += (tracker.segments ?? [])
+        .filter(s => segInSprint(s.started_at, range))
+        .reduce((sum, s) => sum + (s.seconds || 0), 0);
     }
+    if (active && segInSprint(active.started_at, range)) secs += computeElapsed();
     return secs;
   }
 
@@ -740,35 +807,49 @@
       elapsedEl.textContent = '0:00';
     }
 
-    const activeElapsed = active ? computeElapsed() : 0;
     const issuesHtml = Object.entries(trackers)
       .filter(([k]) => k !== '__IDLE__')
-      .map(([key, tracker]) => {
-        const isActiveKey = active && active.key === key;
-        const time = formatElapsed((tracker.total_seconds || 0) + (isActiveKey ? activeElapsed : 0));
-        return `<div style="font-size: 16px; color: var(--dim); padding: 2px 0;">${key}: <span data-track-total="${esc(key)}" style="color: var(--green);">${time}</span></div>`;
+      .map(([key]) => {
+        const secs = dailySecondsForKey(key);
+        if (!secs) return '';
+        return `<div style="font-size: 16px; color: var(--dim); padding: 2px 0;">${key}: <span data-track-total="${esc(key)}" style="color: var(--green);">${formatElapsed(secs)}</span></div>`;
       })
       .join('');
 
-    const idleActive = active?.key === '__IDLE__';
-    const idleSeconds = (trackers.__IDLE__?.total_seconds || 0) + (idleActive ? activeElapsed : 0);
-    const idleHtml = trackers.__IDLE__ ? `<div style="font-size: 16px; color: var(--dim); padding: 2px 0;">Idle: <span style="color: var(--yellow);">${formatElapsed(idleSeconds)}</span></div>` : '';
+    const idleSecs = dailySecondsForKey('__IDLE__') || 0;
+    const idleHtml = idleSecs > 0 ? `<div style="font-size: 16px; color: var(--dim); padding: 2px 0;">Idle: <span style="color: var(--yellow);">${formatElapsed(idleSecs)}</span></div>` : '';
 
-    const allTime = Object.values(trackers).reduce((sum, t) => sum + (t.total_seconds ?? 0), 0) + activeElapsed;
     const dailySecs = computeDailyTotal();
-    const sep = (allTime > 0 || dailySecs > 0) ? `<div style="margin-top:6px;padding-top:6px;border-top:1px solid var(--border)"></div>` : '';
-    const todayHtml = dailySecs > 0 ? `<div id="tracking-today-line" style="font-size: 17px; color: var(--text);">TODAY: ${formatElapsed(dailySecs)}</div>` : '';
-    const totalHtml = allTime > 0 ? `<div id="tracking-total-line" style="font-size: 17px; color: var(--bright);">TOTAL: ${formatElapsed(allTime)}</div>` : '';
+    const sep = dailySecs > 0 ? `<div style="margin-top:6px;padding-top:6px;border-top:1px solid var(--border)"></div>` : '';
+    const totalHtml = dailySecs > 0 ? `<div id="tracking-total-line" style="font-size: 17px; color: var(--bright);">TODAY: ${formatElapsed(dailySecs)}</div>` : '';
 
     const summaryEl = document.getElementById('tracking-summary');
     if (summaryEl) {
-      summaryEl.innerHTML = issuesHtml + idleHtml + sep + todayHtml + totalHtml;
+      summaryEl.innerHTML = issuesHtml + idleHtml + sep + totalHtml;
     }
+  }
+
+  function updateNotTrackingBadge() {
+    const el = document.getElementById('not-tracking');
+    if (!el) return;
+    if (ttData?.active) { el.style.display = 'none'; return; }
+    let lastEnded = null;
+    for (const tracker of Object.values(ttData?.trackers ?? {})) {
+      for (const seg of tracker.segments ?? []) {
+        if (seg.ended_at) {
+          const t = new Date(seg.ended_at).getTime();
+          if (!lastEnded || t > lastEnded) lastEnded = t;
+        }
+      }
+    }
+    const idle = lastEnded ? Date.now() - lastEnded : Infinity;
+    el.style.display = idle > 5 * 60 * 1000 ? '' : 'none';
   }
 
   function startTrackingTick() {
     if (ttTimer) clearInterval(ttTimer);
     ttTimer = setInterval(() => {
+      updateNotTrackingBadge();
       if (ttData?.active) {
         const elapsed = computeElapsed();
         document.getElementById('tracking-elapsed').textContent = formatElapsed(elapsed);
@@ -776,17 +857,13 @@
         const tracker = ttData.trackers[activeKey];
         if (tracker) {
           const baseSeconds = tracker.total_seconds || 0;
-          const totalElapsed = formatElapsed(baseSeconds + elapsed);
           const cardTimeEl = document.querySelector(`.card-time[data-issue-key="${activeKey}"]`);
-          if (cardTimeEl) cardTimeEl.textContent = totalElapsed;
+          if (cardTimeEl) cardTimeEl.textContent = formatElapsed(baseSeconds + elapsed);
           const trackTotalEl = document.querySelector(`[data-track-total="${activeKey}"]`);
-          if (trackTotalEl) trackTotalEl.textContent = totalElapsed;
+          if (trackTotalEl) trackTotalEl.textContent = formatElapsed(dailySecondsForKey(activeKey));
         }
-        const allBase = Object.values(ttData.trackers).reduce((sum, t) => sum + (t.total_seconds ?? 0), 0);
         const totalLineEl = document.getElementById('tracking-total-line');
-        if (totalLineEl) totalLineEl.textContent = `TOTAL: ${formatElapsed(allBase + elapsed)}`;
-        const todayLineEl = document.getElementById('tracking-today-line');
-        if (todayLineEl) todayLineEl.textContent = `TODAY: ${formatElapsed(computeDailyTotal())}`;
+        if (totalLineEl) totalLineEl.textContent = `TODAY: ${formatElapsed(computeDailyTotal())}`;
       }
     }, 1000);
   }
@@ -803,6 +880,7 @@
       console.error('load timetrack:', e);
       ttData = {active: null, trackers: {}, updated: null};
     }
+    updateNotTrackingBadge();
   }
 
   function detectAutoIdle() {
@@ -1037,6 +1115,16 @@
     return p;
   }
 
+  function renderNextTasks(nextTasks) {
+    if (!nextTasks.length) return '<div style="padding:8px 10px;color:var(--dim);font-size:14px">–</div>';
+    const current = nextTasks.filter(i => i.sprint_type === 'current');
+    const next    = nextTasks.filter(i => i.sprint_type === 'next');
+    const sep = '<div style="border-top:1px dashed var(--border);margin:6px 0 4px;padding:2px 10px;font-size:12px;color:var(--dim);letter-spacing:1px;">NEXT SPRINT</div>';
+    if (current.length && next.length)
+      return current.map(jiraCard).join('') + sep + next.map(jiraCard).join('');
+    return nextTasks.map(jiraCard).join('');
+  }
+
   function jiraCard(issue, hideTqaBadge = false) {
     const url = JIRA ? `${JIRA}/browse/${esc(issue.key)}` : null;
     const keyColor = 'var(--bright)';
@@ -1062,6 +1150,7 @@
         <div class="card-meta">
           <span class="type-badge ${typeClass(issue.type)}">${esc(issue.type ?? '?')}</span>
           ${issue.teknisk_qa && !hideTqaBadge ? '<span class="tqa-badge">TEKN·QA</span>' : ''}
+          ${(issue.blocked_by ?? []).filter(b => !['IMPLEMENT','QUALITY ASSURANCE','BUSINESS VALIDATION','RESOLVED'].includes(b.status)).map(b => `<span class="blocked-badge">BLOCKED by ${esc(b.key)}</span>`).join('')}
         </div>
       </div>`;
   }
@@ -1139,9 +1228,7 @@
     const myPrKeys = new Set(myPRs.map(p => p.jira_key).filter(Boolean));
     const nextMode = cols.implement.length === 0;
     document.getElementById('cnt-next').textContent = nextTasks.length;
-    document.getElementById('cards-next').innerHTML = nextTasks.length
-      ? nextTasks.map(jiraCard).join('')
-      : '<div style="padding:8px 10px;color:var(--dim);font-size:14px">–</div>';
+    document.getElementById('cards-next').innerHTML = renderNextTasks(nextTasks);
 
     // Column visibility: hide empty columns; NEXT TASK replaces OPEN+IMPLEMENT when unassigned, or shows on demand
     const showNext = nextMode || forceNextTask;
@@ -1163,14 +1250,14 @@
     if (nextMode) {
       nextEl.style.order = '-1';
       const rest = visibleCols.filter(id => id !== 'col-next');
-      gridParts = ['2fr', ...rest.map(() => '1fr')];
+      gridParts = ['minmax(min-content, 2fr)', ...rest.map(() => 'minmax(min-content, 1fr)')];
     } else if (forceNextTask) {
       nextEl.style.order = '-1';
       const rest = visibleCols.filter(id => id !== 'col-next');
-      gridParts = ['1fr', ...rest.map(() => '1fr')];
+      gridParts = ['minmax(min-content, 1fr)', ...rest.map(() => 'minmax(min-content, 1fr)')];
     } else {
       nextEl.style.order = '';
-      gridParts = visibleCols.map(() => '1fr');
+      gridParts = visibleCols.map(() => 'minmax(min-content, 1fr)');
     }
     document.getElementById('kanban-cols').style.gridTemplateColumns = gridParts.join(' ');
 
@@ -1186,10 +1273,19 @@
     const sprintEl = document.getElementById('sprint-dates');
     if (sprint && sprint.start_date && sprint.end_date) {
       const fmt = iso => { const d = new Date(iso); return `${d.getDate()}/${d.getMonth()+1}`; };
-      sprintEl.textContent = `SPRINT: ${fmt(sprint.start_date)}–${fmt(sprint.end_date)}`;
-      sprintEl.title = sprint.name || '';
+      const dates = `${fmt(sprint.start_date)}–${fmt(sprint.end_date)}`;
+      const name = sprint.name ? ` · ${sprint.name}` : '';
+      sprintEl.textContent = `SPRINT: ${dates}${name}`;
     } else {
       sprintEl.textContent = '';
+    }
+
+    // Backlog link
+    const backlogEl = document.getElementById('backlog-link');
+    if (backlogEl) {
+      const url = jira.backlog_url;
+      if (url) { backlogEl.href = url; backlogEl.style.display = ''; }
+      else { backlogEl.style.display = 'none'; }
     }
   }
 
