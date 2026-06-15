@@ -10,6 +10,7 @@ import http.server
 import json
 import os
 import pathlib
+import re
 import sys
 import urllib.error
 import urllib.parse
@@ -36,7 +37,11 @@ if _port_arg:
 DATA_DIR  = ROOT / ("data-test" if TEST_MODE else "data")
 ACTIVE    = DATA_DIR / ".active"
 TIMETRACK = DATA_DIR / "timetrack.json"
+WORKLOG_LEDGER = DATA_DIR / "jira-worklog.json"
 IDLE_KEY  = "__IDLE__"
+
+JIRA_KEY_RE = re.compile(r"^[A-Z][A-Z0-9]*-\d+$")
+_DATE_RE = re.compile(r"^\d{4}-\d{2}-\d{2}$")
 
 
 def _now_iso() -> str:
@@ -161,6 +166,256 @@ def _load_secrets():
         if line.startswith("STASH_URL="):
             stash_url = line.split("=", 1)[1].strip().strip('"')
     return stash_url, token
+
+
+# ── Jira worklog sync ────────────────────────────────────────────────────────
+_jira_cache: dict = {}
+
+
+def _jira_secrets():
+    token = (ROOT / "secrets" / "jira-token").read_text().strip()
+    jira_url = ""
+    for line in (ROOT / "secrets" / "config").read_text().splitlines():
+        if line.startswith("JIRA_URL="):
+            jira_url = line.split("=", 1)[1].strip().strip('"')
+    return jira_url.rstrip("/"), token
+
+
+def _jira_request(method: str, path: str, body=None, params=None):
+    base, token = _jira_secrets()
+    url = base + path
+    if params:
+        url += "?" + urllib.parse.urlencode(params)
+    data = json.dumps(body).encode() if body is not None else None
+    req = urllib.request.Request(url, data=data, method=method, headers={
+        "Authorization": f"Bearer {token}",
+        "Content-Type": "application/json",
+    })
+    with urllib.request.urlopen(req, timeout=15) as resp:
+        raw = resp.read()
+    return json.loads(raw) if raw else {}
+
+
+def _http_err_msg(err: urllib.error.HTTPError) -> str:
+    try:
+        body = json.loads(err.read())
+        msgs = body.get("errorMessages") or []
+        if not msgs and body.get("errors"):
+            msgs = [str(body["errors"])]
+        if msgs:
+            return f"{err.code}: " + "; ".join(msgs)
+    except Exception:
+        pass
+    return f"HTTP {err.code}"
+
+
+def _my_jira_username() -> str:
+    if "myself" not in _jira_cache:
+        _jira_cache["myself"] = _jira_request("GET", "/rest/api/2/myself").get("name", "")
+    return _jira_cache["myself"]
+
+
+def _parse_jira_dt(s: str) -> datetime.datetime:
+    """Jira Server worklog 'started' format: 2026-06-04T07:53:58.000+0200."""
+    try:
+        return datetime.datetime.strptime((s or "").strip(), "%Y-%m-%dT%H:%M:%S.%f%z")
+    except ValueError:
+        return _parse_dt(s)
+
+
+def _jira_started_fmt(iso: str, date_str: str) -> str:
+    try:
+        dt = _parse_dt(iso)
+    except Exception:
+        dt = datetime.datetime.fromisoformat(date_str + "T12:00:00").astimezone()
+    return dt.strftime("%Y-%m-%dT%H:%M:%S.000%z")
+
+
+def _my_jira_worklog_days(key: str) -> dict:
+    """Local date -> total seconds of worklogs authored by me on that issue."""
+    data = _jira_request("GET", f"/rest/api/2/issue/{key}/worklog")
+    me = _my_jira_username()
+    days: dict = {}
+    for w in data.get("worklogs", []):
+        if ((w.get("author") or {}).get("name", "")) != me:
+            continue
+        try:
+            d = _parse_jira_dt(w.get("started", "")).astimezone().strftime("%Y-%m-%d")
+        except Exception:
+            continue
+        days[d] = days.get(d, 0) + int(w.get("timeSpentSeconds", 0))
+    return days
+
+
+def _round_quarter(seconds: int) -> int:
+    """Round to nearest 15 min: down if minutes%15 < 3, else up. Returns seconds."""
+    m = int(seconds) // 60
+    r = m % 15
+    m = m - r if r < 3 else m + (15 - r)
+    return m * 60
+
+
+def _read_ledger() -> dict:
+    try:
+        return json.loads(WORKLOG_LEDGER.read_text())
+    except Exception:
+        return {"written": {}}
+
+
+def _write_ledger(ledger: dict) -> None:
+    tmp = WORKLOG_LEDGER.with_suffix(".tmp")
+    tmp.write_text(json.dumps(ledger, ensure_ascii=False, indent=2))
+    tmp.rename(WORKLOG_LEDGER)
+
+
+def _daily_totals(state: dict, start: str, end: str):
+    """(key, date) -> {seconds, first_start} for closed segments in [start, end].
+
+    Segments credit their start day, matching the UI's day panel. Returns the
+    totals plus the list of non-Jira keys that had time in range (excluded).
+    """
+    totals: dict = {}
+    invalid = set()
+    for key, tracker in (state.get("trackers") or {}).items():
+        if key == IDLE_KEY:
+            continue
+        valid = bool(JIRA_KEY_RE.match(key))
+        for seg in tracker.get("segments", []):
+            try:
+                d = _parse_dt(seg["started_at"]).strftime("%Y-%m-%d")
+            except Exception:
+                continue
+            if d < start or d > end:
+                continue
+            if not valid:
+                invalid.add(key)
+                break
+            ent = totals.setdefault((key, d), {"seconds": 0, "first_start": seg["started_at"]})
+            ent["seconds"] += int(seg.get("seconds", 0))
+            if seg["started_at"] < ent["first_start"]:
+                ent["first_start"] = seg["started_at"]
+    return totals, sorted(invalid)
+
+
+def _worklog_status(start: str, end: str) -> dict:
+    """Per (issue, day) sync state between local tracked time, the ledger and Jira."""
+    state = _read_timetrack()
+    totals, invalid_keys = _daily_totals(state, start, end)
+    written = _read_ledger().get("written", {})
+
+    pairs = set(totals.keys())
+    for lk in written:
+        key, _, d = lk.partition("|")
+        if start <= d <= end:
+            pairs.add((key, d))
+
+    jira_days: dict = {}
+    jira_errors: dict = {}
+    for key in sorted({k for k, _ in pairs}):
+        try:
+            jira_days[key] = _my_jira_worklog_days(key)
+        except urllib.error.HTTPError as e:
+            jira_errors[key] = _http_err_msg(e)
+        except Exception as e:
+            jira_errors[key] = str(e)
+
+    entries = []
+    for key, d in sorted(pairs, key=lambda p: (p[1], p[0])):
+        t = totals.get((key, d))
+        local = t["seconds"] if t else 0
+        rounded = _round_quarter(local)
+        lentry = written.get(f"{key}|{d}")
+        if lentry is None and rounded == 0:
+            continue  # under 3 minutes and never written — nothing to do
+        jira_secs = jira_days.get(key, {}).get(d, 0)
+        if key in jira_errors:
+            st = "error"
+        elif lentry:
+            if rounded == 0:
+                st = "orphaned"
+            elif int(lentry.get("seconds", -1)) == rounded:
+                st = "synced"
+            else:
+                st = "changed"
+        else:
+            st = "conflict" if jira_secs > 0 else "unwritten"
+        entry = {
+            "key": key, "date": d,
+            "local_seconds": local, "rounded_seconds": rounded,
+            "ledger_seconds": (lentry or {}).get("seconds"),
+            "jira_seconds": jira_secs, "state": st,
+        }
+        if t:
+            entry["first_start"] = t["first_start"]
+        if key in jira_errors:
+            entry["error"] = jira_errors[key]
+        entries.append(entry)
+
+    active = state.get("active")
+    active_info = None
+    if active and active.get("key") != IDLE_KEY:
+        try:
+            ad = _parse_dt(active["started_at"]).strftime("%Y-%m-%d")
+            if start <= ad <= end:
+                active_info = {"key": active["key"], "date": ad}
+        except Exception:
+            pass
+
+    return {"start": start, "end": end, "entries": entries,
+            "invalid_keys": invalid_keys, "active": active_info}
+
+
+def _worklog_write(start: str, end: str) -> dict:
+    """Idempotent write: create unwritten days, update changed ones, skip the rest.
+
+    The ledger is rewritten after every successful Jira call so a crash mid-run
+    can at worst lose the last response — which the conflict guard then catches.
+    """
+    status = _worklog_status(start, end)
+    ledger = _read_ledger()
+    written = ledger.setdefault("written", {})
+    results = []
+    for e in status["entries"]:
+        key, d, rounded = e["key"], e["date"], e["rounded_seconds"]
+        lk = f"{key}|{d}"
+        if e["state"] == "synced":
+            results.append(dict(e, action="skipped"))
+        elif e["state"] == "unwritten":
+            started_fmt = _jira_started_fmt(e.get("first_start", ""), d)
+            try:
+                resp = _jira_request(
+                    "POST", f"/rest/api/2/issue/{key}/worklog",
+                    body={"started": started_fmt, "timeSpentSeconds": rounded},
+                    params={"adjustEstimate": "leave"})
+                written[lk] = {"worklog_id": str(resp.get("id", "")), "seconds": rounded,
+                               "started": started_fmt, "written_at": _now_iso()}
+                _write_ledger(ledger)
+                results.append(dict(e, action="created"))
+            except urllib.error.HTTPError as err:
+                results.append(dict(e, action="error", error=_http_err_msg(err)))
+            except Exception as err:
+                results.append(dict(e, action="error", error=str(err)))
+        elif e["state"] == "changed":
+            lentry = written.get(lk) or {}
+            wid = lentry.get("worklog_id", "")
+            started_fmt = lentry.get("started") or _jira_started_fmt(e.get("first_start", ""), d)
+            try:
+                _jira_request(
+                    "PUT", f"/rest/api/2/issue/{key}/worklog/{wid}",
+                    body={"started": started_fmt, "timeSpentSeconds": rounded},
+                    params={"adjustEstimate": "leave"})
+                written[lk] = dict(lentry, seconds=rounded, started=started_fmt,
+                                   written_at=_now_iso())
+                _write_ledger(ledger)
+                results.append(dict(e, action="updated"))
+            except urllib.error.HTTPError as err:
+                results.append(dict(e, action="error", error=_http_err_msg(err)))
+            except Exception as err:
+                results.append(dict(e, action="error", error=str(err)))
+        else:  # conflict, orphaned, error — never write
+            results.append(dict(e, action=e["state"]))
+    return {"start": start, "end": end, "results": results,
+            "invalid_keys": status["invalid_keys"], "active": status["active"]}
 
 
 def _fetch_sonar_issues(pr_id: str) -> str:
@@ -301,6 +556,9 @@ class Handler(http.server.SimpleHTTPRequestHandler):
         if self.path.startswith("/api/sonar-issues"):
             self._handle_sonar_issues()
             return
+        if self.path.startswith("/api/worklog-status"):
+            self._handle_worklog_status()
+            return
         if self.path.startswith("/data/") and self.path.endswith(".json"):
             if TEST_MODE:
                 self._serve_test_data()
@@ -372,7 +630,39 @@ class Handler(http.server.SimpleHTTPRequestHandler):
         if self.path == "/api/track":
             self._handle_track()
             return
+        if self.path == "/api/worklog-write":
+            self._handle_worklog_write()
+            return
         self._respond(404, "Not found")
+
+    def _handle_worklog_status(self):
+        qs = urllib.parse.parse_qs(urllib.parse.urlparse(self.path).query)
+        start = (qs.get("start") or [""])[0]
+        end = (qs.get("end") or [""])[0]
+        if not _DATE_RE.match(start) or not _DATE_RE.match(end) or end < start:
+            self._respond(400, "Invalid start/end (expected YYYY-MM-DD)")
+            return
+        try:
+            self._respond_json(200, _worklog_status(start, end))
+        except Exception as e:
+            self._respond(502, f"Jira error: {e}")
+
+    def _handle_worklog_write(self):
+        length = int(self.headers.get("Content-Length", 0))
+        raw = self.rfile.read(length) if length else b"{}"
+        try:
+            req = json.loads(raw)
+        except Exception:
+            self._respond(400, "Invalid JSON")
+            return
+        start, end = req.get("start", ""), req.get("end", "")
+        if not _DATE_RE.match(start) or not _DATE_RE.match(end) or end < start:
+            self._respond(400, "Invalid start/end (expected YYYY-MM-DD)")
+            return
+        try:
+            self._respond_json(200, _worklog_write(start, end))
+        except Exception as e:
+            self._respond(502, f"Jira error: {e}")
 
     def _handle_track(self):
         length = int(self.headers.get("Content-Length", 0))

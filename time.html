@@ -38,10 +38,10 @@
     #content { display: flex; flex-direction: column; }
 
     #main-row { display: flex; gap: 20px; align-items: flex-start; justify-content: space-between; }
-    #main-col  { max-width: 860px; width: 100%; min-width: 0; }
+    #main-col  { width: fit-content; }
 
     #daily-panel {
-      width: 160px;
+      width: 195px;
       flex-shrink: 0;
       position: sticky;
       top: 20px;
@@ -144,8 +144,8 @@
 
     .tracker-header {
       display: flex;
-      justify-content: space-between;
       align-items: center;
+      gap: 8px;
       cursor: pointer;
       user-select: none;
     }
@@ -154,9 +154,9 @@
     .tracker-toggle { margin-right: 6px; color: var(--dim); font-size: 14px; width: 12px; display: inline-block; }
     .tracker-segments.collapsed { display: none; }
 
-    .tracker-key { color: var(--bright); font-size: 20px; font-weight: bold; }
-    .tracker-summary { color: var(--text); font-size: 18px; }
-    .tracker-total { color: var(--green); font-size: 22px; font-weight: bold; white-space: nowrap; padding-left: 16px; }
+    .tracker-key { color: var(--bright); font-size: 20px; font-weight: bold; white-space: nowrap; }
+    .tracker-summary { color: var(--text); font-size: 18px; white-space: nowrap; }
+    .tracker-total { color: var(--green); font-size: 22px; font-weight: bold; white-space: nowrap; margin-left: auto; padding-left: 16px; }
 
     .tracker-segments {
       margin-top: 8px;
@@ -262,6 +262,55 @@
     .track-btn:hover { color: var(--bright); border-color: var(--bright); }
     .track-btn.active { color: var(--bright); border-color: var(--bright); animation: blink 1.2s step-start infinite; }
     @keyframes blink { 50% { opacity: 0.3; } }
+
+    /* Jira sync modal */
+    #jira-modal {
+      position: fixed; inset: 0;
+      background: rgba(0,0,0,0.75);
+      display: flex; align-items: flex-start; justify-content: center;
+      padding-top: 8vh; z-index: 100;
+    }
+    #jira-modal.hidden { display: none; }
+    .jira-modal-box {
+      background: var(--panel);
+      border: 1px solid var(--bright);
+      padding: 18px 22px;
+      max-width: 760px; width: 92%;
+      max-height: 75vh; overflow-y: auto;
+    }
+    .sync-row { display: flex; gap: 14px; padding: 3px 0; font-size: 16px; align-items: baseline; }
+    .sync-date { color: var(--dim); white-space: nowrap; }
+    .sync-key { color: var(--bright); min-width: 180px; }
+    .sync-local { min-width: 90px; text-align: right; color: var(--text); white-space: nowrap; }
+    .sync-state-unwritten { color: var(--yellow); }
+    .sync-state-changed   { color: var(--yellow); }
+    .sync-state-synced    { color: var(--green); }
+    .sync-state-conflict  { color: var(--red); }
+    .sync-state-orphaned  { color: var(--red); }
+    .sync-state-error     { color: var(--red); }
+    .sync-action-created, .sync-action-updated { color: var(--green); }
+    .sync-action-skipped { color: var(--dim); }
+    .sync-action-conflict, .sync-action-orphaned, .sync-action-error { color: var(--red); }
+    .day-mark-synced  { color: var(--green); }
+    .day-mark-pending { color: var(--yellow); }
+    #filter-statusbar {
+      position: fixed;
+      bottom: 0;
+      left: 0;
+      right: 0;
+      padding: 6px 20px;
+      background: var(--panel);
+      border-top: 1px solid var(--border);
+      font-size: 14px;
+      color: var(--dim);
+      letter-spacing: 1px;
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      z-index: 50;
+    }
+    #filter-statusbar.active { color: var(--bright); border-top-color: var(--bright); }
+    #filter-statusbar.hidden { display: none; }
   </style>
 </head>
 <body>
@@ -282,10 +331,12 @@
       </div>
       <div class="toolbar">
         <button class="btn" onclick="openNewEntry()">+ New entry</button>
+        <button class="btn" onclick="openJiraSync()">⇄ Jira sync</button>
       </div>
       <div id="new-entry"></div>
       <div id="day-filter-banner" class="hidden">
         <span id="day-filter-label"></span>
+        <button class="seg-btn" onclick="openJiraSync()" title="Write tracked time for this selection to Jira">⇪ Write to Jira</button>
         <button class="filter-clear" onclick="clearDayFilter()" title="Clear filter (Esc)">✕ all entries</button>
       </div>
       <div id="trackers"></div>
@@ -294,28 +345,56 @@
       <div class="daily-panel-header">
         <button class="week-nav" id="btn-prev-week" onclick="shiftWeek(-1)">‹</button>
         <span id="week-label">THIS WEEK</span>
-        <button class="week-nav" id="btn-next-week" onclick="shiftWeek(1)" disabled>›</button>
+        <span style="display:flex;gap:0">
+          <button class="week-nav" id="btn-next-week" onclick="shiftWeek(1)" disabled>›</button>
+          <button class="week-nav" id="btn-fast-forward" onclick="goToCurrentWeek()" style="display:none" title="Jump to current week">»</button>
+        </span>
       </div>
       <div id="day-boxes"></div>
-      <div id="week-total-box" class="daily-week-total" style="border:1px solid var(--green); padding:10px 12px; background:rgba(110,212,100,0.04); margin-top:10px;">
+      <div id="week-total-box" class="daily-week-total" style="border:1px solid var(--border); padding:10px 12px; background:var(--panel); margin-top:10px; cursor:pointer;">
         <span class="day-label">WEEK</span>
         <span class="day-total" id="week-total-val">–</span>
       </div>
+      <div class="daily-panel-header" style="margin-top:10px; margin-bottom:4px;">
+        <button class="week-nav" id="btn-prev-month" onclick="shiftMonth(-1)">‹</button>
+        <span id="month-nav-label" style="font-size:13px; letter-spacing:1px;">JUNE 2026</span>
+        <span style="display:flex;gap:0">
+          <button class="week-nav" id="btn-next-month" onclick="shiftMonth(1)" disabled>›</button>
+          <button class="week-nav" id="btn-fast-forward-month" onclick="goToCurrentMonth()" style="display:none" title="Jump to current month">»</button>
+        </span>
+      </div>
+      <div id="month-total-box" class="daily-week-total" style="border:1px solid var(--border); padding:8px 12px; background:var(--panel); cursor:pointer;" onclick="toggleMonthFilter()">
+        <span class="day-label" id="month-label" style="color:var(--dim);">MONTH</span>
+        <span class="day-total" id="month-total-val">–</span>
+      </div>
+      <div id="sprint-total-box" class="daily-week-total" style="border:1px solid var(--border); padding:8px 12px; background:var(--panel); margin-top:6px; cursor:pointer; display:none;" onclick="toggleSprintFilter()">
+        <span class="day-label" id="sprint-label" style="color:var(--dim);">SPRINT</span>
+        <span class="day-total" id="sprint-total-val">–</span>
+      </div>
     </div>
   </div>
+</div>
+
+<div id="filter-statusbar" class="hidden"></div>
+
+<div id="jira-modal" class="hidden" onmousedown="if(event.target.id==='jira-modal')closeJiraModal()">
+  <div class="jira-modal-box" id="jira-modal-box"></div>
 </div>
 
 <script>
 const IDLE_KEY = '__IDLE__';
 
 let lastData   = null;
+let jiraData   = null;
 let liveTimer  = null;  // 1-second tick for the active-banner elapsed display
 // openForm: null | {type:'edit', key, id} | {type:'add', key} | {type:'new'}
 let openForm = null;
 const expandedKeys = new Set();
 let weekOffset = 0; // 0 = current week, -1 = last week, etc.
+let monthOffset = 0; // 0 = current month, -1 = last month, etc.
 let selectedDay = null; // localDateStr of the selected day, or null
-let selectedWeek = null; // {start, end} localDateStr, or null
+let monthFilter = null; // "YYYY-MM" string, or null
+let sprintFilter = false;
 
 // ── formatting ────────────────────────────────────────────────────────────
 function formatTime(seconds) {
@@ -381,9 +460,21 @@ function renderActiveBanner() {
       liveTimer = setInterval(() => {
         const secs = computeElapsed();
         document.getElementById('active-elapsed').textContent = formatElapsed(secs);
-        const baseSeconds = lastData?.trackers?.[lastData.active?.key]?.total_seconds || 0;
         const totalEl = document.getElementById('active-tracker-total');
-        if (totalEl) totalEl.textContent = formatTime(baseSeconds + secs);
+        if (totalEl) {
+          const activeKey = lastData?.active?.key;
+          const allSegs = lastData?.trackers?.[activeKey]?.segments || [];
+          const weekRange = viewedWeekRange();
+          const segs = selectedDay
+            ? allSegs.filter(s => localDateStr(new Date(s.started_at)) === selectedDay)
+            : monthFilter
+              ? allSegs.filter(s => localDateStr(new Date(s.started_at)).startsWith(monthFilter))
+              : sprintFilter
+                ? allSegs.filter(s => { const sr = sprintDateRange(); const d = localDateStr(new Date(s.started_at)); return sr && d >= sr.start && d <= sr.end; })
+                : allSegs.filter(s => { const d = localDateStr(new Date(s.started_at)); return d >= weekRange.start && d <= weekRange.end; });
+          const baseSeconds = segs.reduce((sum, s) => sum + (s.seconds || 0), 0);
+          totalEl.textContent = formatTime(baseSeconds + secs);
+        }
         const segEl = document.getElementById('active-seg-time');
         if (segEl) segEl.textContent = formatTime(secs);
         if (weekOffset === 0) renderDailyPanel();
@@ -514,23 +605,29 @@ function render() {
       : '';
 
   const trackers = data.trackers || {};
+  const weekRange = viewedWeekRange();
   let keys = Object.keys(trackers).filter(k => k !== IDLE_KEY).sort();
   if (trackers[IDLE_KEY]) keys.push(IDLE_KEY);
-  if (selectedDay) {
-    keys = keys.filter(k => {
-      const segs = trackers[k]?.segments || [];
-      const isActive = k === (lastData?.active?.key);
+  keys = keys.filter(k => {
+    const segs = trackers[k]?.segments || [];
+    const isActive = k === (lastData?.active?.key);
+    if (selectedDay) {
       return segs.some(s => localDateStr(new Date(s.started_at)) === selectedDay)
         || (isActive && localDateStr(new Date(lastData.active.started_at)) === selectedDay);
-    });
-  } else if (selectedWeek) {
-    keys = keys.filter(k => {
-      const segs = trackers[k]?.segments || [];
-      const isActive = k === (lastData?.active?.key);
-      return segs.some(s => { const d = localDateStr(new Date(s.started_at)); return d >= selectedWeek.start && d <= selectedWeek.end; })
-        || (isActive && (() => { const d = localDateStr(new Date(lastData.active.started_at)); return d >= selectedWeek.start && d <= selectedWeek.end; })());
-    });
-  }
+    }
+    if (monthFilter) {
+      return segs.some(s => localDateStr(new Date(s.started_at)).startsWith(monthFilter))
+        || (isActive && localDateStr(new Date(lastData.active.started_at)).startsWith(monthFilter));
+    }
+    if (sprintFilter) {
+      const sr = sprintDateRange();
+      if (!sr) return false;
+      return segs.some(s => { const d = localDateStr(new Date(s.started_at)); return d >= sr.start && d <= sr.end; })
+        || (isActive && (() => { const d = localDateStr(new Date(lastData.active.started_at)); return d >= sr.start && d <= sr.end; })());
+    }
+    return segs.some(s => { const d = localDateStr(new Date(s.started_at)); return d >= weekRange.start && d <= weekRange.end; })
+      || (isActive && (() => { const d = localDateStr(new Date(lastData.active.started_at)); return d >= weekRange.start && d <= weekRange.end; })());
+  });
 
   const trackersEl = document.getElementById('trackers');
   if (keys.length === 0) {
@@ -549,17 +646,19 @@ function render() {
     const allSegs = tracker.segments || [];
     const segs = selectedDay
       ? allSegs.filter(s => localDateStr(new Date(s.started_at)) === selectedDay)
-      : selectedWeek
-      ? allSegs.filter(s => { const d = localDateStr(new Date(s.started_at)); return d >= selectedWeek.start && d <= selectedWeek.end; })
-      : allSegs;
+      : monthFilter
+        ? allSegs.filter(s => localDateStr(new Date(s.started_at)).startsWith(monthFilter))
+        : sprintFilter
+          ? allSegs.filter(s => { const sr = sprintDateRange(); const d = localDateStr(new Date(s.started_at)); return sr && d >= sr.start && d <= sr.end; })
+          : allSegs.filter(s => { const d = localDateStr(new Date(s.started_at)); return d >= weekRange.start && d <= weekRange.end; });
     const activeInFilter = isActive && lastData.active && (() => {
       if (selectedDay) return localDateStr(new Date(lastData.active.started_at)) === selectedDay;
-      if (selectedWeek) { const d = localDateStr(new Date(lastData.active.started_at)); return d >= selectedWeek.start && d <= selectedWeek.end; }
-      return true;
+      if (monthFilter) return localDateStr(new Date(lastData.active.started_at)).startsWith(monthFilter);
+      if (sprintFilter) { const sr = sprintDateRange(); const d = localDateStr(new Date(lastData.active.started_at)); return !!sr && d >= sr.start && d <= sr.end; }
+      const d = localDateStr(new Date(lastData.active.started_at));
+      return d >= weekRange.start && d <= weekRange.end;
     })();
-    const total = (selectedDay || selectedWeek)
-      ? segs.reduce((sum, s) => sum + (s.seconds || 0), 0) + (activeInFilter ? elapsed : 0)
-      : (tracker.total_seconds || 0) + elapsed;
+    const total = segs.reduce((sum, s) => sum + (s.seconds || 0), 0) + (activeInFilter ? elapsed : 0);
     grandTotal += total;
     const hasSegments = segs.length > 0 || isActive;
     const addingHere = openForm && openForm.type === 'add' && openForm.key === key;
@@ -615,20 +714,17 @@ function render() {
 
     const isCollapsed = !expandedKeys.has(key);
     const totalId = isActive ? ' id="active-tracker-total"' : '';
+    const displaySummary = jiraData?.issues?.find(i => i.key === key)?.summary
+      || (tracker.summary !== key ? tracker.summary : '')
+      || '';
     return `
       <div class="tracker-item ${isIdle ? 'idle-tracker' : ''}" data-tracker-key="${esc(key)}">
         <div class="tracker-header" onclick="toggleSegments(this)">
-          <div style="display:flex; align-items:center; gap:6px; flex:1;">
-            <span class="tracker-toggle">${hasSegments || addingHere ? (isCollapsed ? '▸' : '▾') : ''}</span>
-            <div>
-              <div style="display:flex; align-items:center; gap:6px;">
-                <span class="tracker-key">${isIdle ? '⏸ IDLE' : esc(key)}</span>
-                ${!isIdle ? `<button class="track-btn${isActive ? ' active' : ''}" onclick="event.stopPropagation();startTracking('${esc(key)}','${esc(tracker.summary)}')">${isActive ? 'TRACKING' : 'Track'}</button>` : ''}
-              </div>
-              ${!isIdle ? `<div class="tracker-summary">${esc(tracker.summary)}</div>` : ''}
-            </div>
-          </div>
+          <span class="tracker-toggle">${hasSegments || addingHere ? (isCollapsed ? '▸' : '▾') : ''}</span>
+          <span class="tracker-key">${isIdle ? '⏸ IDLE' : esc(key)}</span>
+          ${!isIdle && displaySummary ? `<span class="tracker-summary">${esc(displaySummary)}</span>` : ''}
           <div class="tracker-total"${totalId}>${formatTime(total)}</div>
+          ${!isIdle ? `<button class="track-btn${isActive ? ' active' : ''}" onclick="event.stopPropagation();startTracking('${esc(key)}','${esc(displaySummary)}')">${isActive ? 'TRACKING' : 'Track'}</button>` : ''}
         </div>
         <div class="tracker-segments${isCollapsed ? ' collapsed' : ''}">
           ${activeSegHtml}
@@ -641,36 +737,185 @@ function render() {
   renderDailyPanel();
 }
 
-function shiftWeek(delta) {
-  weekOffset = Math.min(0, weekOffset + delta);
-  renderDailyPanel();
+function viewedWeekRange() {
+  const now = new Date();
+  const monday = new Date(now);
+  monday.setDate(now.getDate() - ((now.getDay() + 6) % 7) + weekOffset * 7);
+  monday.setHours(0, 0, 0, 0);
+  const friday = new Date(monday);
+  friday.setDate(monday.getDate() + 4);
+  return { start: localDateStr(monday), end: localDateStr(friday) };
 }
 
-function selectDay(ds, label) {
-  if (selectedDay === ds) { clearDayFilter(); return; }
-  selectedDay = ds;
-  selectedWeek = null;
-  document.getElementById('day-filter-label').textContent = label;
-  document.getElementById('day-filter-banner').classList.remove('hidden');
+function viewedMonthYM() {
+  const now = new Date();
+  const d = new Date(now.getFullYear(), now.getMonth() + monthOffset, 1);
+  return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}`;
+}
+
+function computeMonthTotal() {
+  if (!lastData) return 0;
+  const ym = viewedMonthYM();
+  let secs = 0;
+  for (const tracker of Object.values(lastData.trackers || {})) {
+    for (const seg of tracker.segments || []) {
+      if (localDateStr(new Date(seg.started_at)).startsWith(ym)) secs += seg.seconds || 0;
+    }
+  }
+  const active = lastData.active;
+  if (active && monthOffset === 0 && localDateStr(new Date(active.started_at)).startsWith(ym)) secs += computeElapsed();
+  return secs;
+}
+
+function sprintDateRange() {
+  if (!jiraData?.sprint) return null;
+  return { start: jiraData.sprint.start_date, end: jiraData.sprint.end_date };
+}
+
+function computeSprintTotal() {
+  if (!lastData || !jiraData?.sprint) return 0;
+  const sr = sprintDateRange();
+  let secs = 0;
+  for (const tracker of Object.values(lastData.trackers || {})) {
+    for (const seg of tracker.segments || []) {
+      const d = localDateStr(new Date(seg.started_at));
+      if (d >= sr.start && d <= sr.end) secs += seg.seconds || 0;
+    }
+  }
+  const active = lastData.active;
+  if (active) {
+    const d = localDateStr(new Date(active.started_at));
+    if (d >= sr.start && d <= sr.end) secs += computeElapsed();
+  }
+  return secs;
+}
+
+function toggleSprintFilter() {
+  if (!jiraData?.sprint) return;
+  if (sprintFilter) {
+    sprintFilter = false;
+    document.getElementById('day-filter-banner').classList.add('hidden');
+  } else {
+    sprintFilter = true;
+    selectedDay = null;
+    monthFilter = null;
+    const sr = sprintDateRange();
+    const fmt = s => { const [,m,d] = s.split('-'); return `${d}/${m}`; };
+    document.getElementById('day-filter-label').textContent = `SPRINT  ${fmt(sr.start)} – ${fmt(sr.end)}`;
+    document.getElementById('day-filter-banner').classList.remove('hidden');
+  }
+  updateFilterStatusbar();
   renderDailyPanel();
   render();
 }
 
-function selectWeek(start, end, label) {
-  if (selectedWeek && selectedWeek.start === start) { clearDayFilter(); return; }
-  selectedWeek = {start, end};
-  selectedDay = null;
+function shiftWeek(delta) {
+  weekOffset = Math.min(0, weekOffset + delta);
+  renderDailyPanel();
+  render();
+}
+
+function goToCurrentWeek() {
+  weekOffset = 0;
+  renderDailyPanel();
+  render();
+}
+
+function shiftMonth(delta) {
+  monthOffset = Math.min(0, monthOffset + delta);
+  if (monthFilter) {
+    monthFilter = viewedMonthYM();
+    const [y, m] = monthFilter.split('-').map(Number);
+    const d = new Date(y, m - 1, 1);
+    const label = d.toLocaleString('en-GB', { month: 'long', year: 'numeric' }).toUpperCase();
+    document.getElementById('day-filter-label').textContent = label;
+    updateFilterStatusbar();
+  }
+  renderDailyPanel();
+  render();
+}
+
+function goToCurrentMonth() {
+  monthOffset = 0;
+  if (monthFilter) {
+    monthFilter = viewedMonthYM();
+    const now = new Date();
+    const label = now.toLocaleString('en-GB', { month: 'long', year: 'numeric' }).toUpperCase();
+    document.getElementById('day-filter-label').textContent = label;
+    updateFilterStatusbar();
+  }
+  renderDailyPanel();
+  render();
+}
+
+function updateFilterStatusbar() {
+  const bar = document.getElementById('filter-statusbar');
+  if (!bar) return;
+  if (selectedDay) {
+    const d = new Date(selectedDay + 'T12:00:00');
+    const weekday = d.toLocaleString('en-GB', { weekday: 'long' }).toUpperCase();
+    const day = String(d.getDate()).padStart(2, '0');
+    const month = d.toLocaleString('en-GB', { month: 'long' }).toUpperCase();
+    const year = d.getFullYear();
+    bar.textContent = `${weekday}  ${day}  ${month}  ${year}`;
+    bar.className = 'active';
+  } else if (monthFilter) {
+    const [y, m] = monthFilter.split('-').map(Number);
+    const d = new Date(y, m - 1, 1);
+    const month = d.toLocaleString('en-GB', { month: 'long' }).toUpperCase();
+    bar.textContent = `${month}  ${y}`;
+    bar.className = 'active';
+  } else if (sprintFilter && jiraData?.sprint) {
+    const sr = sprintDateRange();
+    const fmt = s => { const [y,m,d] = s.split('-'); return `${d}/${m}/${y}`; };
+    const name = jiraData.sprint.name ? `  ·  ${jiraData.sprint.name}` : '';
+    bar.textContent = `SPRINT  ${fmt(sr.start)} – ${fmt(sr.end)}${name}`;
+    bar.className = 'active';
+  } else {
+    bar.textContent = '';
+    bar.className = 'hidden';
+  }
+}
+
+function toggleMonthFilter() {
+  const ym = viewedMonthYM();
+  if (monthFilter === ym) {
+    monthFilter = null;
+    document.getElementById('day-filter-banner').classList.add('hidden');
+  } else {
+    monthFilter = ym;
+    selectedDay = null;
+    sprintFilter = false;
+    const [y, m] = ym.split('-').map(Number);
+    const d = new Date(y, m - 1, 1);
+    const label = d.toLocaleString('en-GB', { month: 'long', year: 'numeric' }).toUpperCase();
+    document.getElementById('day-filter-label').textContent = label;
+    document.getElementById('day-filter-banner').classList.remove('hidden');
+  }
+  updateFilterStatusbar();
+  renderDailyPanel();
+  render();
+}
+
+function selectDay(ds, label) {
+  if (selectedDay === ds) { clearDayFilter(); return; }
+  monthFilter = null;
+  sprintFilter = false;
+  selectedDay = ds;
   document.getElementById('day-filter-label').textContent = label;
   document.getElementById('day-filter-banner').classList.remove('hidden');
+  updateFilterStatusbar();
   renderDailyPanel();
   render();
 }
 
 function clearDayFilter() {
-  if (!selectedDay && !selectedWeek) return;
+  if (!selectedDay && !monthFilter && !sprintFilter) return;
   selectedDay = null;
-  selectedWeek = null;
+  monthFilter = null;
+  sprintFilter = false;
   document.getElementById('day-filter-banner').classList.add('hidden');
+  updateFilterStatusbar();
   renderDailyPanel();
   render();
 }
@@ -713,10 +958,12 @@ function renderDailyPanel() {
     const isSelected = ds === selectedDay;
     const label = `${DAY_NAMES[i]} ${String(d.getDate()).padStart(2, '0')}`;
     const timeStr = secs > 0 ? formatHm(secs) : '–';
+    const mark = daySyncMarks[ds] === 'synced' ? ' <span class="day-mark-synced">✓</span>'
+               : daySyncMarks[ds] === 'pending' ? ' <span class="day-mark-pending">●</span>' : '';
     const classes = ['day-box', isToday ? 'today' : '', isSelected ? 'selected' : ''].filter(Boolean).join(' ');
     html += `<div class="${classes}" onclick="selectDay('${ds}','${label}')">
       <span class="day-label">${label}</span>
-      <span class="day-total${secs === 0 ? ' empty' : ''}">${timeStr}</span>
+      <span class="day-total${secs === 0 ? ' empty' : ''}">${timeStr}${mark}</span>
     </div>`;
   }
   document.getElementById('day-boxes').innerHTML = html;
@@ -725,6 +972,11 @@ function renderDailyPanel() {
   if (weekTotalVal) {
     weekTotalVal.textContent = weekTotal > 0 ? formatHm(weekTotal) : '–';
     weekTotalVal.className = 'day-total' + (weekTotal === 0 ? ' empty' : '');
+  }
+  const weekBox = document.getElementById('week-total-box');
+  if (weekBox) {
+    weekBox.style.borderColor = weekTotal > 0 ? 'var(--green)' : 'var(--border)';
+    weekBox.style.background = weekTotal > 0 ? 'rgba(110,212,100,0.04)' : 'var(--panel)';
   }
 
   const weekStart = monday;
@@ -735,15 +987,204 @@ function renderDailyPanel() {
     weekOffset === 0 ? 'THIS WEEK' : `${fmt(weekStart)}–${fmt(weekEnd)}`;
   document.getElementById('btn-next-week').disabled = weekOffset === 0;
 
-  const weekStartStr = localDateStr(weekStart);
-  const weekEndStr = localDateStr(weekEnd);
-  const weekSelected = selectedWeek && selectedWeek.start === weekStartStr;
-  const weekBox = document.getElementById('week-total-box');
-  weekBox.style.cursor = 'pointer';
-  weekBox.style.borderColor = weekSelected ? 'var(--bright)' : 'var(--green)';
-  weekBox.style.background = weekSelected ? 'rgba(255,212,85,0.07)' : 'rgba(110,212,100,0.04)';
-  const weekFilterLabel = weekOffset === 0 ? 'This week' : `Week ${fmt(weekStart)}–${fmt(weekEnd)}`;
-  weekBox.onclick = () => selectWeek(weekStartStr, weekEndStr, weekFilterLabel);
+  const ffBtn = document.getElementById('btn-fast-forward');
+  if (ffBtn) ffBtn.style.display = weekOffset < 0 ? '' : 'none';
+
+  document.getElementById('week-total-box').onclick = () => openJiraSync(viewedWeekRange());
+
+  // month nav
+  const ym = viewedMonthYM();
+  const [my, mm] = ym.split('-').map(Number);
+  const mDate = new Date(my, mm - 1, 1);
+  document.getElementById('month-nav-label').textContent =
+    mDate.toLocaleString('en-GB', { month: 'long', year: 'numeric' }).toUpperCase();
+  document.getElementById('btn-next-month').disabled = monthOffset === 0;
+  const ffMonthBtn = document.getElementById('btn-fast-forward-month');
+  if (ffMonthBtn) ffMonthBtn.style.display = monthOffset < 0 ? '' : 'none';
+
+  const monthSecs = computeMonthTotal();
+  const monthVal = document.getElementById('month-total-val');
+  if (monthVal) {
+    monthVal.textContent = monthSecs > 0 ? formatHm(monthSecs) : '–';
+    monthVal.className = 'day-total' + (monthSecs === 0 ? ' empty' : '');
+  }
+
+  const monthBox = document.getElementById('month-total-box');
+  const monthLbl = document.getElementById('month-label');
+  if (monthBox) {
+    const isActiveMonth = monthFilter && monthFilter === ym;
+    monthBox.style.borderColor = isActiveMonth ? 'var(--bright)' : 'var(--border)';
+    monthBox.style.background = isActiveMonth ? 'rgba(255,212,85,0.07)' : 'var(--panel)';
+    if (monthLbl) monthLbl.style.color = isActiveMonth ? 'var(--bright)' : 'var(--dim)';
+  }
+
+  const sprintBox = document.getElementById('sprint-total-box');
+  const sprintLbl = document.getElementById('sprint-label');
+  const sprintVal = document.getElementById('sprint-total-val');
+  if (sprintBox && jiraData?.sprint) {
+    const sprintSecs = computeSprintTotal();
+    if (sprintVal) {
+      sprintVal.textContent = sprintSecs > 0 ? formatHm(sprintSecs) : '–';
+      sprintVal.className = 'day-total' + (sprintSecs === 0 ? ' empty' : '');
+    }
+    sprintBox.style.borderColor = sprintFilter ? 'var(--bright)' : 'var(--border)';
+    sprintBox.style.background = sprintFilter ? 'rgba(255,212,85,0.07)' : 'var(--panel)';
+    if (sprintLbl) sprintLbl.style.color = sprintFilter ? 'var(--bright)' : 'var(--dim)';
+  }
+}
+
+// ── Jira worklog sync ───────────────────────────────────────────────────────
+let jiraStatus = null;     // last /api/worklog-status response
+let jiraBusy = false;
+let daySyncMarks = {};     // dateStr -> 'synced' | 'pending'
+
+function currentRange() {
+  if (selectedDay) return {start: selectedDay, end: selectedDay};
+  if (monthFilter) {
+    const [y, m] = monthFilter.split('-').map(Number);
+    const lastDay = new Date(y, m, 0).getDate();
+    return { start: `${monthFilter}-01`, end: `${monthFilter}-${String(lastDay).padStart(2,'0')}` };
+  }
+  if (sprintFilter) {
+    const sr = sprintDateRange();
+    if (sr) return sr;
+  }
+  return viewedWeekRange();
+}
+
+function showJiraModal(html) {
+  document.getElementById('jira-modal-box').innerHTML = html;
+  document.getElementById('jira-modal').classList.remove('hidden');
+}
+
+function closeJiraModal() {
+  document.getElementById('jira-modal').classList.add('hidden');
+}
+
+async function fetchJiraStatus(start, end) {
+  const resp = await fetch(`/api/worklog-status?start=${start}&end=${end}`, {cache: 'no-store'});
+  if (!resp.ok) throw new Error(await resp.text());
+  return resp.json();
+}
+
+async function openJiraSync(range) {
+  if (!range) range = currentRange();
+  showJiraModal('<div class="empty">Fetching Jira worklogs…</div>');
+  try {
+    jiraStatus = await fetchJiraStatus(range.start, range.end);
+    renderJiraModal();
+    updateDayMarks();
+  } catch (e) {
+    showJiraModal(`<div class="empty">⚠ ${esc(e.message)}</div>
+      <div style="text-align:right;"><button class="btn" onclick="closeJiraModal()">Close</button></div>`);
+  }
+}
+
+function jiraModalHead(start, end) {
+  return `<div style="display:flex;justify-content:space-between;align-items:baseline;margin-bottom:12px;">
+    <span style="color:var(--bright);font-size:20px;letter-spacing:1px;">JIRA WORKLOG — ${start}${end !== start ? ` → ${end}` : ''}</span>
+    <button class="seg-btn" onclick="closeJiraModal()">✕</button>
+  </div>`;
+}
+
+function jiraModalWarnings(s) {
+  let html = '';
+  if (s.active) html += `<div style="color:var(--yellow);margin-bottom:8px;">⚠ Tracking ${esc(s.active.key)} — running time for ${s.active.date} is not included.</div>`;
+  if ((s.invalid_keys || []).length) html += `<div style="color:var(--dim);margin-bottom:8px;">Skipped non-Jira keys: ${s.invalid_keys.map(esc).join(', ')}</div>`;
+  return html;
+}
+
+function syncStateHtml(e) {
+  switch (e.state) {
+    case 'unwritten': return `→ will write ${formatHm(e.rounded_seconds)}`;
+    case 'synced':    return `✓ written ${formatHm(e.rounded_seconds)}`;
+    case 'changed':   return `${formatHm(e.ledger_seconds || 0)} → ${formatHm(e.rounded_seconds)} (will update)`;
+    case 'conflict':  return `⚠ Jira already has ${formatHm(e.jira_seconds)} (not written by this tool)`;
+    case 'orphaned':  return `⚠ wrote ${formatHm(e.ledger_seconds || 0)} but local time is gone — fix in Jira`;
+    case 'error':     return `⚠ ${esc(e.error || 'Jira error')}`;
+    default:          return esc(e.state);
+  }
+}
+
+function syncRowHtml(e) {
+  return `<div class="sync-row">
+    <span class="sync-date">${e.date}</span>
+    <span class="sync-key">${esc(e.key)}</span>
+    <span class="sync-local">${formatHm(e.local_seconds)}</span>
+    <span class="sync-state-${e.state}">${syncStateHtml(e)}</span>
+  </div>`;
+}
+
+function renderJiraModal() {
+  const s = jiraStatus;
+  const writable = s.entries.filter(e => e.state === 'unwritten' || e.state === 'changed');
+  const rows = s.entries.length
+    ? s.entries.map(syncRowHtml).join('')
+    : '<div class="empty">Nothing to write in this range.</div>';
+  const foot = writable.length
+    ? `<div style="margin-top:14px;text-align:right;">
+        <button class="btn" id="btn-write-go" onclick="writeJira()">⇪ Write ${writable.length} ${writable.length === 1 ? 'entry' : 'entries'} to Jira</button>
+      </div>`
+    : '';
+  showJiraModal(jiraModalHead(s.start, s.end) + jiraModalWarnings(s) + rows + foot);
+}
+
+function resultRowHtml(r) {
+  const label = {
+    created:  `✓ created ${formatHm(r.rounded_seconds)}`,
+    updated:  `✓ updated to ${formatHm(r.rounded_seconds)}`,
+    skipped:  `– already written`,
+    conflict: `⚠ conflict — Jira has ${formatHm(r.jira_seconds)} not written by this tool`,
+    orphaned: `⚠ orphaned — fix in Jira`,
+    error:    `✗ ${esc(r.error || 'Jira error')}`,
+  }[r.action] || esc(r.action);
+  return `<div class="sync-row">
+    <span class="sync-date">${r.date}</span>
+    <span class="sync-key">${esc(r.key)}</span>
+    <span class="sync-local">${formatHm(r.local_seconds)}</span>
+    <span class="sync-action-${r.action}">${label}</span>
+  </div>`;
+}
+
+async function writeJira() {
+  if (jiraBusy || !jiraStatus) return;
+  jiraBusy = true;
+  const btn = document.getElementById('btn-write-go');
+  if (btn) { btn.disabled = true; btn.textContent = 'Writing…'; }
+  try {
+    const resp = await fetch('/api/worklog-write', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({start: jiraStatus.start, end: jiraStatus.end}),
+    });
+    if (!resp.ok) throw new Error(await resp.text());
+    const data = await resp.json();
+    const rows = data.results.map(resultRowHtml).join('') || '<div class="empty">Nothing to write.</div>';
+    showJiraModal(jiraModalHead(data.start, data.end) + jiraModalWarnings(data) + rows +
+      `<div style="margin-top:14px;text-align:right;"><button class="btn" onclick="closeJiraModal()">Close</button></div>`);
+    // refresh marks from the post-write state
+    jiraStatus = await fetchJiraStatus(data.start, data.end);
+    updateDayMarks();
+  } catch (e) {
+    showJiraModal(jiraModalHead(jiraStatus.start, jiraStatus.end) +
+      `<div class="empty">⚠ Write failed: ${esc(e.message)}</div>
+      <div style="text-align:right;"><button class="btn" onclick="closeJiraModal()">Close</button></div>`);
+  } finally {
+    jiraBusy = false;
+  }
+}
+
+function updateDayMarks() {
+  daySyncMarks = {};
+  if (!jiraStatus) return;
+  for (const e of jiraStatus.entries) {
+    if (e.state === 'synced') {
+      if (!daySyncMarks[e.date]) daySyncMarks[e.date] = 'synced';
+    } else {
+      daySyncMarks[e.date] = 'pending';
+    }
+  }
+  renderDailyPanel();
 }
 
 function localDateStr(date) {
@@ -769,9 +1210,15 @@ function toggleSegments(headerEl) {
 
 async function loadAndRender() {
   try {
-    const resp = await fetch('data/timetrack.json', {cache:'no-store'});
-    if (!resp.ok) throw new Error('No tracking data yet');
-    lastData = await resp.json();
+    const [ttResp, jResp] = await Promise.all([
+      fetch('data/timetrack.json', {cache:'no-store'}),
+      fetch('data/jira.json', {cache:'no-store'}).catch(() => null),
+    ]);
+    if (!ttResp.ok) throw new Error('No tracking data yet');
+    lastData = await ttResp.json();
+    if (jResp?.ok) jiraData = await jResp.json();
+    const sprintBox = document.getElementById('sprint-total-box');
+    if (sprintBox) sprintBox.style.display = jiraData?.sprint ? '' : 'none';
     renderActiveBanner();
     render();
   } catch (e) {
@@ -786,10 +1233,15 @@ loadAndRender();
 // auto-refresh, but never while a form is open (would wipe the user's input)
 setInterval(() => { if (!openForm) loadAndRender(); }, 5000);
 
-document.addEventListener('keydown', e => { if (e.key === 'Escape') clearDayFilter(); });
+document.addEventListener('keydown', e => {
+  if (e.key !== 'Escape') return;
+  if (!document.getElementById('jira-modal').classList.contains('hidden')) { closeJiraModal(); return; }
+  clearDayFilter();
+});
 document.addEventListener('mousedown', e => {
-  if (!selectedDay && !selectedWeek) return;
-  if (!e.target.closest('#daily-panel') && !e.target.closest('#day-filter-banner')) {
+  if (!selectedDay && !monthFilter && !sprintFilter) return;
+  if (!e.target.closest('#daily-panel') && !e.target.closest('#day-filter-banner')
+      && !e.target.closest('#main-col') && !e.target.closest('#jira-modal')) {
     clearDayFilter();
   }
 });
