@@ -1,10 +1,10 @@
 #!/bin/bash
 # First-time setup: creates secrets/ and data/ with placeholder values.
-# Edit secrets/ files with real credentials, then run start.sh.
+# Edit secrets/ files with real credentials, then run scripts/start.sh.
 
-SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
-SECRETS="$SCRIPT_DIR/secrets"
-DATA="$SCRIPT_DIR/data"
+ROOT="$(cd "$(dirname "$0")/.." && pwd)"
+SECRETS="$ROOT/secrets"
+DATA="$ROOT/data"
 
 mkdir -p "$SECRETS" "$DATA"
 
@@ -17,6 +17,7 @@ else
 STASH_URL="https://your-bitbucket-server"
 JIRA_URL="https://your-jira-server"
 JIRA_PROJECTS="PROJ1,PROJ2"
+LAUNCHD_PREFIX="com.yourname.jiraffe"
 EOF
     echo "  created  $CREDS"
 fi
@@ -49,4 +50,4 @@ else
 fi
 
 echo ""
-echo "Fill in secrets/ with real values, then run ./start.sh"
+echo "Fill in secrets/ with real values, then run ./scripts/start.sh"

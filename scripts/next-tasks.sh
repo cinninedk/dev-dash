@@ -1,6 +1,6 @@
 #!/bin/bash
-SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
-DATA="$SCRIPT_DIR/data/jira.json"
+ROOT="$(cd "$(dirname "$0")/.." && pwd)"
+DATA="$ROOT/data/jira.json"
 JIRA_URL=$(jq -r '.jira_url // ""' "$DATA" 2>/dev/null)
 
 jq -r '

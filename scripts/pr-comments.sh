@@ -1,12 +1,12 @@
 #!/bin/bash
-# Usage: ./pr-comments.sh <pr_id>
-SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
-source "$SCRIPT_DIR/secrets/config"
-PASSWORD=$(cat "$SCRIPT_DIR/secrets/bitbucket-token")
+# Usage: ./scripts/pr-comments.sh <pr_id>
+ROOT="$(cd "$(dirname "$0")/.." && pwd)"
+source "$ROOT/secrets/config"
+PASSWORD=$(cat "$ROOT/secrets/bitbucket-token")
 
 PR_ID="${1:?Usage: $0 <pr_id>}"
 
-DATA="$SCRIPT_DIR/data/bitbucket.json"
+DATA="$ROOT/data/bitbucket.json"
 PR=$(jq --argjson id "$PR_ID" '[.my_prs[], .reviewer_prs[]] | map(select(.id == $id)) | .[0]' "$DATA" 2>/dev/null)
 if [ -z "$PR" ] || [ "$PR" = "null" ]; then
     echo "PR #$PR_ID not found in data/bitbucket.json" >&2
@@ -38,7 +38,7 @@ printf "\n\033[1;33mPR #%s\033[0m  %s\n" "$PR_ID" "$TITLE"
 printf "\033[2mAuthor: %s  |  Repo: %s\033[0m\n\n" "$AUTHOR" "$SLUG"
 
 echo "$all_activities" | jq -r '
-  map(select(.action == "COMMENTED" and .comment != null)) |
+  map(select(.action == "COMMENTED" and .comment != null and (.comment.parent == null))) |
   map({
     state:  .comment.state,
     author: (.comment.author.displayName // .comment.author.name // "Unknown"),

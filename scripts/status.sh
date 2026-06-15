@@ -1,8 +1,11 @@
 #!/bin/bash
 # Shows whether the dashboard services are running and the last poll output.
 
+ROOT="$(cd "$(dirname "$0")/.." && pwd)"
+source "$ROOT/secrets/config"
+
 echo "=== Services ==="
-launchctl list | grep com.caspernielsen.dashboard || echo "(none running)"
+launchctl list | grep "$LAUNCHD_PREFIX" || echo "(none running)"
 
 echo ""
 echo "=== Last poll output ==="

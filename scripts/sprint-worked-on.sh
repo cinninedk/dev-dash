@@ -2,9 +2,9 @@
 # Lists issues you worked on this sprint — assigned to you and moved from
 # Implement to Quality Assurance (i.e. you did the implementation).
 
-SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
-source "$SCRIPT_DIR/secrets/config"
-JIRA_PASSWORD=$(cat "$SCRIPT_DIR/secrets/jira-token")
+ROOT="$(cd "$(dirname "$0")/.." && pwd)"
+source "$ROOT/secrets/config"
+JIRA_PASSWORD=$(cat "$ROOT/secrets/jira-token")
 
 JQL="sprint in openSprints() AND project in ($JIRA_PROJECTS) AND status CHANGED FROM \"Implement\" TO \"Quality Assurance\" BY currentUser() ORDER BY updated DESC"
 

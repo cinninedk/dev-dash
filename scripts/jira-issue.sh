@@ -1,11 +1,11 @@
 #!/bin/bash
 # jira-issue.sh — fetch full Jira issue details for AI context
-# Usage: ./jira-issue.sh PROJ-123
-#        ./jira-issue.sh PROJ-123 | pbcopy
+# Usage: ./scripts/jira-issue.sh PROJ-123
+#        ./scripts/jira-issue.sh PROJ-123 | pbcopy
 
-SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
-source "$SCRIPT_DIR/secrets/config"
-JIRA_PASSWORD=$(cat "$SCRIPT_DIR/secrets/jira-token")
+ROOT="$(cd "$(dirname "$0")/.." && pwd)"
+source "$ROOT/secrets/config"
+JIRA_PASSWORD=$(cat "$ROOT/secrets/jira-token")
 
 ISSUE="${1?Usage: $0 <ISSUE-KEY>}"
 
@@ -41,51 +41,39 @@ echo "$DATA" | jq -r '.fields.description // "_No description provided_"'
 echo ""
 
 # ── Subtasks ─────────────────────────────────────────────────────────────────
-if [ "$(echo "$DATA" | jq '(.fields.subtasks // []) | length')" -gt 0 ]; then
-    echo "---"
-    echo ""
+SUBTASKS=$(echo "$DATA" | jq -r '
+  (.fields.subtasks // []) | to_entries[] |
+  "  \(.key + 1). \(.value.key)  [\(.value.fields.status.name)]  \(.value.fields.summary)"
+')
+if [ -n "$SUBTASKS" ]; then
     echo "## Subtasks"
-    echo ""
-    echo "$DATA" | jq -r '
-      .fields.subtasks[] |
-      "- [\(.key)] \(.fields.summary) — \(.fields.status.name)"
-    '
+    echo "$SUBTASKS"
     echo ""
 fi
 
-# ── Linked issues ─────────────────────────────────────────────────────────────
-if [ "$(echo "$DATA" | jq '(.fields.issuelinks // []) | length')" -gt 0 ]; then
-    echo "---"
-    echo ""
-    echo "## Linked Issues"
-    echo ""
-    echo "$DATA" | jq -r '
-      .fields.issuelinks[] |
-      if .inwardIssue then
-        "- \(.type.inward): [\(.inwardIssue.key)] \(.inwardIssue.fields.summary) (\(.inwardIssue.fields.status.name))"
-      elif .outwardIssue then
-        "- \(.type.outward): [\(.outwardIssue.key)] \(.outwardIssue.fields.summary) (\(.outwardIssue.fields.status.name))"
-      else empty end
-    '
+# ── Issue links ───────────────────────────────────────────────────────────────
+LINKS=$(echo "$DATA" | jq -r '
+  (.fields.issuelinks // [])[] |
+  if .outwardIssue then
+    "  \(.type.outward | ascii_upcase): \(.outwardIssue.key)  [\(.outwardIssue.fields.status.name)]  \(.outwardIssue.fields.summary)"
+  elif .inwardIssue then
+    "  \(.type.inward | ascii_upcase): \(.inwardIssue.key)  [\(.inwardIssue.fields.status.name)]  \(.inwardIssue.fields.summary)"
+  else empty end
+')
+if [ -n "$LINKS" ]; then
+    echo "## Linked issues"
+    echo "$LINKS"
     echo ""
 fi
 
-# ── Comments (fetched separately to guarantee all are returned) ───────────────
-COMMENTS=$(curl -sf \
-    -H "Authorization: Bearer $JIRA_PASSWORD" \
-    "${JIRA_URL}/rest/api/2/issue/${ISSUE}/comment?maxResults=100&orderBy=created" \
-    2>/dev/null)
-
-COMMENT_COUNT=$(echo "$COMMENTS" | jq '.total // 0' 2>/dev/null || echo 0)
-
+# ── Comments ─────────────────────────────────────────────────────────────────
+COMMENT_COUNT=$(echo "$DATA" | jq '.fields.comment.comments | length')
 if [ "$COMMENT_COUNT" -gt 0 ]; then
-    echo "---"
-    echo ""
     echo "## Comments ($COMMENT_COUNT)"
     echo ""
-    echo "$COMMENTS" | jq -r '
-      .comments[] |
-      "**\(.author.displayName)** (\(.created[:10])):",
+    echo "$DATA" | jq -r '
+      .fields.comment.comments[] |
+      "**\(.author.displayName // .author.name)** (\(.created[:10])):",
       .body,
       ""
     '

@@ -10,3 +10,4 @@ data/
 # personal context / stale reference scripts with hardcoded values
 DASHBOARD_BRIEF.md
 check_builds.sh
+__pycache__
