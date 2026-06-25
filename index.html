@@ -5,9 +5,14 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Jiraffe</title>
   <link rel="preconnect" href="https://fonts.googleapis.com">
-  <link href="https://fonts.googleapis.com/css2?family=Share+Tech+Mono&display=swap" rel="stylesheet">
+  <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;600&family=Kalam:wght@300;400;700&family=Permanent+Marker&family=Share+Tech+Mono&family=VT323&display=swap" rel="stylesheet">
   <style>
-    :root {
+    /* ── THEMES ──────────────────────────────────────────────────────────
+       Each theme overrides the same variable set. :root holds the default
+       (Amber) so the UI still renders correctly before JS applies a theme.
+       Add a theme by copying a block and registering it in THEMES (JS). */
+    :root,
+    [data-theme="amber"] {
       --bg:     #0a0700;
       --panel:  #100c00;
       --border: #8a5500;
@@ -18,6 +23,159 @@
       --red:    #f05858;
       --yellow: #f8c838;
       --blue:   #7eb8ff;
+      --row-border:      rgba(74,45,0,0.35);
+      --row-border-soft: rgba(74,45,0,0.20);
+      --hover-bg:        rgba(212,135,10,0.05);
+      --subtle-bg:       rgba(30,80,180,0.06);
+      --subtle-bg-hover: rgba(30,80,180,0.11);
+      --scanline:        rgba(0,0,0,0.07);
+      --overlay:         rgba(0,0,0,0.75);
+      /* expression — font, casing, phosphor glow, CRT frame */
+      --font:            'Share Tech Mono', monospace;
+      --font-display:    'Share Tech Mono', monospace;
+      --case:            none;
+      --glow:            0 0 1px rgba(245,170,48,0.35);
+      --frame-w:         0px;
+      --frame-c:         transparent;
+      --scanline-step:   4px;
+    }
+
+    [data-theme="green"] {
+      --bg:     #000800;
+      --panel:  #001209;
+      --border: #1f7a3a;
+      --dim:    #3fd06a;
+      --text:   #46e878;
+      --bright: #9dffb0;
+      --green:  #6ed464;
+      --red:    #ff6b6b;
+      --yellow: #e8e060;
+      --blue:   #6bd0ff;
+      --row-border:      rgba(20,90,40,0.40);
+      --row-border-soft: rgba(20,90,40,0.22);
+      --hover-bg:        rgba(40,200,90,0.06);
+      --subtle-bg:       rgba(40,200,120,0.06);
+      --subtle-bg-hover: rgba(40,200,120,0.12);
+      --scanline:        rgba(0,0,0,0.14);
+      --overlay:         rgba(0,0,0,0.78);
+      /* old phosphor monitor — chunky terminal font, heavy glow + scanlines */
+      --font:            'VT323', monospace;
+      --font-display:    'VT323', monospace;
+      --case:            uppercase;
+      --glow:            0 0 3px rgba(70,232,120,0.5);
+      --scanline-step:   3px;
+    }
+
+    [data-theme="ice"] {
+      --bg:     #00060d;
+      --panel:  #031019;
+      --border: #1d6a8a;
+      --dim:    #52b8d8;
+      --text:   #7fd4ee;
+      --bright: #b8f0ff;
+      --green:  #6ed4a8;
+      --red:    #ff7a7a;
+      --yellow: #f0d060;
+      --blue:   #8ec5ff;
+      --row-border:      rgba(20,80,110,0.40);
+      --row-border-soft: rgba(20,80,110,0.22);
+      --hover-bg:        rgba(40,150,200,0.07);
+      --subtle-bg:       rgba(60,120,220,0.07);
+      --subtle-bg-hover: rgba(60,120,220,0.13);
+      --scanline:        rgba(0,0,0,0.05);
+      --overlay:         rgba(0,8,16,0.78);
+      /* modern crisp terminal — clean mono, no scanlines, faint glow */
+      --font:            'IBM Plex Mono', monospace;
+      --font-display:    'IBM Plex Mono', monospace;
+      --case:            none;
+      --glow:            0 0 1px rgba(127,212,238,0.25);
+      --scanline-step:   6px;
+    }
+
+    [data-theme="paper"] {
+      --bg:     #f4efe3;
+      --panel:  #eae3d2;
+      --border: #b09a6a;
+      --dim:    #7a6a45;
+      --text:   #3a3325;
+      --bright: #1c1810;
+      --green:  #3a8a40;
+      --red:    #c83232;
+      --yellow: #b8881a;
+      --blue:   #2a6abf;
+      --row-border:      rgba(120,100,60,0.30);
+      --row-border-soft: rgba(120,100,60,0.18);
+      --hover-bg:        rgba(120,90,30,0.08);
+      --subtle-bg:       rgba(40,90,180,0.06);
+      --subtle-bg-hover: rgba(40,90,180,0.12);
+      --scanline:        rgba(0,0,0,0.015);
+      --overlay:         rgba(40,35,25,0.55);
+      /* printout / e-ink — clean mono, no glow, barely-there texture */
+      --font:            'IBM Plex Mono', monospace;
+      --font-display:    'IBM Plex Mono', monospace;
+      --case:            none;
+      --glow:            none;
+      --scanline-step:   8px;
+    }
+
+    /* Commodore 64 — PETSCII-blue home computer: light-blue on deep blue,
+       chunky bitmap-style font, ALL CAPS, soft glow, and a border frame
+       around the whole screen like a real C64 boot screen. */
+    [data-theme="c64"] {
+      --bg:     #40318d;
+      --panel:  #4a3ba2;
+      --border: #7869c4;
+      --dim:    #9b8fe0;
+      --text:   #c4bdf2;
+      --bright: #ffffff;
+      --green:  #94e089;
+      --red:    #e58178;
+      --yellow: #cfd06a;
+      --blue:   #9b8fff;
+      --row-border:      rgba(120,105,196,0.40);
+      --row-border-soft: rgba(120,105,196,0.24);
+      --hover-bg:        rgba(150,135,230,0.14);
+      --subtle-bg:       rgba(180,170,245,0.08);
+      --subtle-bg-hover: rgba(180,170,245,0.15);
+      --scanline:        rgba(0,0,0,0.10);
+      --overlay:         rgba(18,10,55,0.80);
+      --font:            'VT323', monospace;
+      --font-display:    'VT323', monospace;
+      --case:            uppercase;
+      --glow:            0 0 2px rgba(155,143,255,0.55);
+      --frame-w:         9px;
+      --frame-c:         #7869c4;
+      --scanline-step:   3px;
+    }
+
+    /* Corkboard — a physical sprint board: post-it cards pinned to cork
+       inside a wooden frame, written in marker + handwriting. The sticky-note
+       look itself lives in the [data-theme="board"]-scoped rules further down. */
+    [data-theme="board"] {
+      --bg:     #c2a173;
+      --panel:  #d9c39d;
+      --border: #7a5a36;
+      --dim:    #5c4a30;
+      --text:   #2c2418;
+      --bright: #14100a;
+      --green:  #2f7d33;
+      --red:    #bf3328;
+      --yellow: #a8780f;
+      --blue:   #2f5fa8;
+      --row-border:      rgba(90,65,35,0.30);
+      --row-border-soft: rgba(90,65,35,0.18);
+      --hover-bg:        rgba(90,65,35,0.10);
+      --subtle-bg:       rgba(60,90,160,0.06);
+      --subtle-bg-hover: rgba(60,90,160,0.12);
+      --scanline:        rgba(0,0,0,0);
+      --overlay:         rgba(40,30,18,0.55);
+      --font:            'Kalam', cursive;
+      --font-display:    'Permanent Marker', cursive;
+      --case:            none;
+      --glow:            none;
+      --frame-w:         12px;
+      --frame-c:         #6e4a2a;
+      --scanline-step:   8px;
     }
 
     *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
@@ -25,26 +183,47 @@
     body {
       background: var(--bg);
       color: var(--text);
-      font-family: 'Share Tech Mono', monospace;
+      font-family: var(--font);
+      text-shadow: var(--glow, none);
       font-size: 19px;
       height: 100vh;
       overflow: hidden;
       display: flex;
       flex-direction: column;
-      padding-bottom: 26px; /* room for fixed statusbar */
+      /* inset content by the frame width so the screen frame never covers text */
+      padding: var(--frame-w, 0px);
+      padding-bottom: calc(26px + var(--frame-w, 0px)); /* room for fixed statusbar + frame */
     }
 
+    /* CRT scanline overlay — density follows the active theme */
     body::after {
       content: "";
       position: fixed;
       inset: 0;
       background: repeating-linear-gradient(
         0deg,
-        transparent, transparent 2px,
-        rgba(0,0,0,0.07) 2px, rgba(0,0,0,0.07) 4px
+        transparent, transparent calc(var(--scanline-step, 4px) / 2),
+        var(--scanline) calc(var(--scanline-step, 4px) / 2), var(--scanline) var(--scanline-step, 4px)
       );
       pointer-events: none;
       z-index: 9999;
+    }
+
+    /* Screen frame — only visible on themes that set --frame-w (e.g. C64) */
+    body::before {
+      content: "";
+      position: fixed;
+      inset: 0;
+      border: var(--frame-w, 0px) solid var(--frame-c, transparent);
+      pointer-events: none;
+      z-index: 9998;
+    }
+
+    /* Chrome labels carry the theme's display font + casing */
+    #logo, .section-title, .col-header, .stat-label,
+    .feed-block h3, .jira-review-label {
+      font-family: var(--font-display);
+      text-transform: var(--case, none);
     }
 
     /* ── HEADER ── */
@@ -95,6 +274,20 @@
       display: inline-block;
     }
     #refresh-btn:hover, #timesheet-link:hover { border-color: var(--bright); color: var(--bright); }
+
+    #theme-select {
+      background: var(--panel);
+      border: 1px solid var(--border);
+      color: var(--text);
+      font-family: inherit;
+      font-size: 17px;
+      padding: 3px 8px;
+      cursor: pointer;
+      flex-shrink: 0;
+      letter-spacing: 1px;
+    }
+    #theme-select:hover { border-color: var(--bright); color: var(--bright); }
+    #theme-select:focus { outline: none; border-color: var(--bright); }
 
     /* ── STATS ROW ── */
     #stats-row {
@@ -161,10 +354,10 @@
     #reviewer-prs-list { max-height: 250px; overflow-y: auto; }
 
 
-    .pr-item { border-bottom: 1px solid rgba(74,45,0,0.35); }
+    .pr-item { border-bottom: 1px solid var(--row-border); }
     .pr-item:last-child { border-bottom: none; }
     .pr-item:hover .pr-row,
-    .pr-item:hover .pr-detail { background: rgba(212,135,10,0.05); }
+    .pr-item:hover .pr-detail { background: var(--hover-bg); }
 
     .pr-row {
       display: flex;
@@ -295,7 +488,7 @@
       padding: 1px 6px;
       letter-spacing: 0.3px;
     }
-    .copy-btn:hover { color: var(--text); border-color: var(--amber); }
+    .copy-btn:hover { color: var(--text); border-color: var(--bright); }
 
     /* ── SONAR ISSUES MODAL ── */
     #sonar-modal {
@@ -303,7 +496,7 @@
       position: fixed;
       inset: 0;
       z-index: 10000;
-      background: rgba(0,0,0,0.75);
+      background: var(--overlay);
       align-items: center;
       justify-content: center;
     }
@@ -411,24 +604,24 @@
 
     .jira-card {
       padding: 6px 10px;
-      border-bottom: 1px solid rgba(74,45,0,0.3);
+      border-bottom: 1px solid var(--row-border-soft);
     }
-    .jira-card:hover { background: rgba(212,135,10,0.04); }
+    .jira-card:hover { background: var(--hover-bg); }
 
     .card-group {
       border-left: 2px solid var(--blue);
-      border-bottom: 1px solid rgba(74,45,0,0.3);
+      border-bottom: 1px solid var(--row-border-soft);
     }
     .card-group > .jira-card {
-      border-bottom: 1px dashed rgba(74,45,0,0.2);
+      border-bottom: 1px dashed var(--row-border-soft);
       border-left: none;
     }
     .card-group > .jira-card:last-child { border-bottom: none; }
     .card-group > .subtask-card {
       padding-left: 18px;
-      background: rgba(30,80,180,0.04);
+      background: var(--subtle-bg);
     }
-    .card-group > .subtask-card:hover { background: rgba(30,80,180,0.08); }
+    .card-group > .subtask-card:hover { background: var(--subtle-bg-hover); }
     .parent-ref-badge {
       font-size: 13px;
       padding: 0 5px;
@@ -493,7 +686,7 @@
     /* ── STATUSBAR ── */
     #statusbar {
       position: fixed;
-      bottom: 0; left: 0; right: 0;
+      bottom: var(--frame-w, 0px); left: var(--frame-w, 0px); right: var(--frame-w, 0px);
       height: 26px;
       background: var(--panel);
       border-top: 1px solid var(--border);
@@ -515,7 +708,81 @@
     }
     .sb:last-child { margin-left: auto; border-right: none; border-left: 1px solid var(--border); }
     .sb span { color: var(--text); }
+
+    /* ══ BOARD THEME — corkboard + post-it notes ══════════════════════════ */
+    /* Cork texture: a wash of warm browns flecked with darker speckles. */
+    [data-theme="board"] body {
+      background-color: #c2a173;
+      background-image:
+        radial-gradient(circle at 18% 28%, rgba(108,74,40,0.22) 0 1.5px, transparent 2px),
+        radial-gradient(circle at 63% 54%, rgba(92,60,28,0.18) 0 1.5px, transparent 2px),
+        radial-gradient(circle at 82% 20%, rgba(132,96,56,0.20) 0 1.5px, transparent 2px),
+        radial-gradient(circle at 40% 82%, rgba(88,56,26,0.20) 0 1.5px, transparent 2px),
+        radial-gradient(circle at 90% 75%, rgba(120,86,48,0.16) 0 1.5px, transparent 2px);
+      background-size: 23px 23px, 17px 17px, 29px 29px, 19px 19px, 13px 13px;
+    }
+
+    /* Headers read like a marker-pen label taped to the cork. */
+    [data-theme="board"] .section-title,
+    [data-theme="board"] .col-header,
+    [data-theme="board"] .col-count { letter-spacing: 0.5px; }
+
+    /* Each Jira card becomes a sticky note pinned at a jaunty angle. */
+    [data-theme="board"] .jira-card {
+      position: relative;
+      background: #fdf48a;
+      border: none;
+      margin: 14px 12px 16px;
+      padding: 11px 12px 13px;
+      border-radius: 1px;
+      box-shadow: 1px 3px 6px rgba(0,0,0,0.32);
+      transition: transform 0.12s ease, box-shadow 0.12s ease;
+    }
+    [data-theme="board"] .jira-card:nth-child(2n)   { transform: rotate(-1.3deg); }
+    [data-theme="board"] .jira-card:nth-child(2n+1) { transform: rotate(0.9deg); }
+    [data-theme="board"] .jira-card:nth-child(5n)   { transform: rotate(1.6deg); }
+    /* Sticky-note colour variety, the way a real board accumulates them. */
+    [data-theme="board"] .jira-card:nth-child(4n+1) { background: #fdf48a; } /* yellow */
+    [data-theme="board"] .jira-card:nth-child(4n+2) { background: #c7e8a6; } /* green  */
+    [data-theme="board"] .jira-card:nth-child(4n+3) { background: #f7bccd; } /* pink   */
+    [data-theme="board"] .jira-card:nth-child(4n)   { background: #b9d8f2; } /* blue   */
+    [data-theme="board"] .jira-card:hover {
+      transform: rotate(0deg) translateY(-3px) scale(1.02);
+      box-shadow: 2px 6px 12px rgba(0,0,0,0.40);
+      z-index: 5;
+    }
+    /* A strip of translucent tape across the top of every note. */
+    [data-theme="board"] .jira-card::before {
+      content: "";
+      position: absolute;
+      top: -7px; left: 50%;
+      transform: translateX(-50%) rotate(-2.5deg);
+      width: 52px; height: 16px;
+      background: rgba(255,255,255,0.38);
+      border: 1px solid rgba(255,255,255,0.28);
+      box-shadow: 0 1px 2px rgba(0,0,0,0.10);
+    }
+    [data-theme="board"] .jira-card .card-key,
+    [data-theme="board"] .jira-card .card-summary { color: #1c160c; }
+    /* Groups lose their chrome; subtasks are smaller notes tucked underneath. */
+    [data-theme="board"] .card-group { border: none; background: transparent; }
+    [data-theme="board"] .card-group > .subtask-card {
+      margin-left: 26px;
+      background: #ffe6a8;
+    }
+    /* Pinned-list rows (PRs) sit flat on the cork, hand-written. */
+    [data-theme="board"] .empty-msg,
+    [data-theme="board"] .pr-detail { color: var(--dim); }
   </style>
+  <script>
+    // Apply the saved theme before first paint to avoid a flash of the default.
+    (function () {
+      try {
+        var t = localStorage.getItem('jiraffe-theme');
+        if (t) document.documentElement.setAttribute('data-theme', t);
+      } catch (e) {}
+    })();
+  </script>
 </head>
 <body>
 
@@ -537,6 +804,14 @@
     <div id="header-clock"></div>
     <div id="sprint-dates" style="color:var(--dim);font-size:15px;letter-spacing:0.5px;"></div>
     <a id="timesheet-link" href="time.html">⏱ TIMESHEET</a>
+    <select id="theme-select" title="Theme" onchange="setTheme(this.value)">
+      <option value="amber">◆ AMBER CRT</option>
+      <option value="c64">◆ COMMODORE 64</option>
+      <option value="green">◆ GREEN PHOSPHOR</option>
+      <option value="ice">◆ ICE TERMINAL</option>
+      <option value="paper">◆ PAPER</option>
+      <option value="board">◆ CORKBOARD</option>
+    </select>
     <button id="next-task-btn" onclick="toggleNextTask()">NEXT TASK</button>
     <button id="refresh-btn" onclick="loadData()">⟳ REFRESH</button>
   </header>
@@ -634,6 +909,20 @@
     document.getElementById('next-task-btn').classList.toggle('active', forceNextTask);
     if (bbData && jiraData) renderAll(bbData, jiraData);
   }
+
+  // ── Theme switching ──────────────────────────────────────────────────────
+  const THEMES = ['amber', 'c64', 'green', 'ice', 'paper', 'board'];
+
+  function setTheme(name) {
+    if (!THEMES.includes(name)) name = 'amber';
+    document.documentElement.setAttribute('data-theme', name);
+    try { localStorage.setItem('jiraffe-theme', name); } catch (e) {}
+    const sel = document.getElementById('theme-select');
+    if (sel) sel.value = name;
+  }
+
+  // Sync the dropdown to the theme applied by the early <head> script.
+  setTheme(document.documentElement.getAttribute('data-theme') || 'amber');
 
   let bbData        = null;
   let jiraData      = null;
