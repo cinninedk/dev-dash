@@ -108,7 +108,7 @@ get_unresolved_comments() {
             2>/dev/null) || break
         [ -z "$body" ] && break
         local page_count
-        page_count=$(echo "$body" | jq '[.values[]? | select(.action == "COMMENTED" and (.comment.parent == null) and (.comment.state != "RESOLVED"))] | length' 2>/dev/null || echo 0)
+        page_count=$(echo "$body" | jq '[.values[]? | select(.action == "COMMENTED" and (.comment.parent == null) and (.comment.state != "RESOLVED") and (.comment.threadResolved != true))] | length' 2>/dev/null || echo 0)
         count=$((count + page_count))
         is_last=$(echo "$body" | jq -r '.isLastPage // true')
         start=$(echo "$body" | jq -r '.nextPageStart // 0')
@@ -354,9 +354,10 @@ JQ_PROJ='[.issues[]? | {
     type:       .fields.issuetype.name,
     priority:   .fields.priority.name,
     updated:    .fields.updated,
+    parent_key: (.fields.parent.key // null),
     teknisk_qa: ((.fields.labels // []) | any(. == "teknisk_QA")),
     unassigned: (.fields.assignee == null),
-    blocked_by: [(.fields.issuelinks // [])[] | select(.type.inwardDesc == "is blocked by" and .inwardIssue != null) | {key: .inwardIssue.key, status: (.inwardIssue.fields.status.name | ascii_upcase)}]
+    blocked_by: [(.fields.issuelinks // [])[] | select(.type.inward == "is blocked by" and .inwardIssue != null) | {key: .inwardIssue.key, status: (.inwardIssue.fields.status.name | ascii_upcase)}]
 }]'
 
 JQ_PROJ_TQA='[.issues[]? | {
@@ -377,7 +378,7 @@ MINE_JSON=$(curl -s \
     --get \
     --data-urlencode "jql=$JQL_MINE" \
     --data-urlencode "maxResults=50" \
-    --data-urlencode "fields=summary,status,issuetype,priority,updated,labels,assignee,issuelinks" \
+    --data-urlencode "fields=summary,status,issuetype,priority,updated,labels,assignee,issuelinks,parent" \
     | jq "$JQ_PROJ" 2>/dev/null || echo "[]")
 
 IMPL_JSON=$(curl -s \
@@ -386,7 +387,7 @@ IMPL_JSON=$(curl -s \
     --get \
     --data-urlencode "jql=$JQL_IMPL" \
     --data-urlencode "maxResults=50" \
-    --data-urlencode "fields=summary,status,issuetype,priority,updated,labels,assignee,issuelinks" \
+    --data-urlencode "fields=summary,status,issuetype,priority,updated,labels,assignee,issuelinks,parent" \
     | jq "$JQ_PROJ" 2>/dev/null || echo "[]")
 
 TQA_JSON=$(curl -s \
@@ -440,6 +441,12 @@ ISSUES_JSON=$(jq -n --argjson a "$MINE_JSON" --argjson b "$IMPL_JSON" '
   ($a | map(select(.teknisk_qa != true))) as $mine |
   ($mine | map(.key)) as $mine_keys |
   $mine + ($b | map(select(.key as $k | ($mine_keys | index($k)) == null)))
+')
+
+# Mark each blocker with whether it is assigned to me (i.e. appears in my own issues)
+MINE_KEYS=$(echo "$MINE_JSON" | jq '[.[].key]')
+ISSUES_JSON=$(echo "$ISSUES_JSON" | jq --argjson mine_keys "${MINE_KEYS:-[]}" '
+  map(.blocked_by = ((.blocked_by // []) | map(. + {mine: (.key as $k | ($mine_keys | index($k)) != null)})))
 ')
 
 IMPL_KEYS=$(echo "$IMPL_JSON" | jq '[.[].key]')

@@ -514,7 +514,8 @@ def _fetch_pr_comments(pr_id: str) -> str:
     threads = [a for a in activities
                if a.get("action") == "COMMENTED"
                and a.get("comment")
-               and a["comment"].get("state") != "RESOLVED"]
+               and a["comment"].get("state") != "RESOLVED"
+               and a["comment"].get("threadResolved") is not True]
 
     lines = [
         f"# PR #{pr['id']}: {pr['title']}",

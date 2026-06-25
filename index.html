@@ -415,6 +415,28 @@
     }
     .jira-card:hover { background: rgba(212,135,10,0.04); }
 
+    .card-group {
+      border-left: 2px solid var(--blue);
+      border-bottom: 1px solid rgba(74,45,0,0.3);
+    }
+    .card-group > .jira-card {
+      border-bottom: 1px dashed rgba(74,45,0,0.2);
+      border-left: none;
+    }
+    .card-group > .jira-card:last-child { border-bottom: none; }
+    .card-group > .subtask-card {
+      padding-left: 18px;
+      background: rgba(30,80,180,0.04);
+    }
+    .card-group > .subtask-card:hover { background: rgba(30,80,180,0.08); }
+    .parent-ref-badge {
+      font-size: 13px;
+      padding: 0 5px;
+      border: 1px solid var(--border);
+      color: var(--dim);
+      white-space: nowrap;
+    }
+
     .card-key     { color: var(--bright); font-size: 17px; }
     .card-summary {
       color: var(--text);
@@ -437,7 +459,8 @@
     .t-bug   { color: var(--red);  border-color: var(--red); }
     .t-task  { color: var(--dim);  border-color: var(--border); }
     .tqa-badge { font-size: 14px; padding: 0 4px; border: 1px solid var(--blue); color: var(--blue); letter-spacing: 1px; }
-    .blocked-badge { font-size: 13px; padding: 1px 6px; border: 1px solid var(--red); color: var(--red); letter-spacing: 0.5px; animation: glow-red 1.4s ease-in-out infinite; white-space: nowrap; }
+    .blocked-badge { font-size: 13px; padding: 1px 6px; border: 1px solid var(--dim); color: var(--dim); letter-spacing: 0.5px; white-space: nowrap; }
+    .blocked-badge.glow { border-color: var(--red); color: var(--red); animation: glow-red 1.4s ease-in-out infinite; }
     @keyframes glow-red { 0%,100% { box-shadow: 0 0 3px #f0585855; color: #f05858; } 50% { box-shadow: 0 0 10px #f05858cc; color: #ff9090; border-color: #ff9090; } }
     .t-other { color: var(--dim);  border-color: var(--border); }
 
@@ -1125,7 +1148,7 @@
     return nextTasks.map(jiraCard).join('');
   }
 
-  function jiraCard(issue, hideTqaBadge = false) {
+  function jiraCard(issue, hideTqaBadge = false, extraClass = '') {
     const url = JIRA ? `${JIRA}/browse/${esc(issue.key)}` : null;
     const keyColor = 'var(--bright)';
     const keyHtml = url
@@ -1140,7 +1163,7 @@
       trackedTime = formatElapsed(baseSeconds + elapsedAdd);
     }
     return `
-      <div class="jira-card" data-issue-key="${esc(issue.key)}">
+      <div class="jira-card${extraClass ? ' ' + extraClass : ''}" data-issue-key="${esc(issue.key)}">
         <div style="display: flex; gap: 6px; align-items: center;">
           <div class="card-key">${keyHtml}</div>
           <button class="track-btn ${isTracking ? 'active' : ''}" data-key="${esc(issue.key)}" data-summary="${esc(issue.summary)}" onclick="trackIssue(this.getAttribute('data-key'), this.getAttribute('data-summary'))">${isTracking ? 'TRACKING' : 'Track'}</button>
@@ -1150,9 +1173,47 @@
         <div class="card-meta">
           <span class="type-badge ${typeClass(issue.type)}">${esc(issue.type ?? '?')}</span>
           ${issue.teknisk_qa && !hideTqaBadge ? '<span class="tqa-badge">TEKN·QA</span>' : ''}
-          ${(issue.blocked_by ?? []).filter(b => !['IMPLEMENT','QUALITY ASSURANCE','BUSINESS VALIDATION','RESOLVED'].includes(b.status)).map(b => `<span class="blocked-badge">BLOCKED by ${esc(b.key)}</span>`).join('')}
+          ${issue.parent_key && extraClass !== 'subtask-card' ? `<span class="parent-ref-badge">↑ ${esc(issue.parent_key)}</span>` : ''}
+          ${['QUALITY ASSURANCE','BUSINESS VALIDATION','RESOLVED'].includes(issue.status) ? '' : (issue.blocked_by ?? []).map(b => {
+            const handled = (b.status === 'IMPLEMENT' && b.mine) || ['QUALITY ASSURANCE','BUSINESS VALIDATION','RESOLVED'].includes(b.status);
+            return `<span class="blocked-badge${handled ? '' : ' glow'}">BLOCKED by ${esc(b.key)}</span>`;
+          }).join('')}
         </div>
       </div>`;
+  }
+
+  function renderKanbanColumn(colIssues, allIssues) {
+    const colKeys = new Set(colIssues.map(i => i.key));
+    const rendered = new Set();
+    const parts = [];
+
+    // First pass: render each issue that is NOT a child of another issue in this column.
+    // This ensures parents are always rendered before their subtasks regardless of list order.
+    for (const issue of colIssues) {
+      if (rendered.has(issue.key)) continue;
+      if (issue.parent_key && colKeys.has(issue.parent_key)) continue; // will be picked up by its parent
+
+      const subtasks = colIssues.filter(i => i.parent_key === issue.key);
+      rendered.add(issue.key);
+      subtasks.forEach(s => rendered.add(s.key));
+
+      if (subtasks.length > 0) {
+        const parentCard = jiraCard(issue, false, '');
+        const subtaskCards = subtasks.map(s => jiraCard(s, false, 'subtask-card')).join('');
+        parts.push(`<div class="card-group">${parentCard}${subtaskCards}</div>`);
+      } else {
+        parts.push(jiraCard(issue));
+      }
+    }
+
+    // Second pass: any subtasks whose parent wasn't in this column render standalone
+    for (const issue of colIssues) {
+      if (rendered.has(issue.key)) continue;
+      rendered.add(issue.key);
+      parts.push(jiraCard(issue));
+    }
+
+    return parts.join('') || '<div style="padding:8px 10px;color:var(--dim);font-size:14px">–</div>';
   }
 
   // ── Render ──────────────────────────────────────────────────────────────
@@ -1198,17 +1259,14 @@
     };
     for (const [key, cards] of Object.entries(cols)) {
       document.getElementById(`cnt-${key}`).textContent = cards.length;
-      document.getElementById(`cards-${key}`).innerHTML = cards.length
-        ? cards.map(jiraCard).join('')
-        : '<div style="padding:8px 10px;color:var(--dim);font-size:14px">–</div>';
+      document.getElementById(`cards-${key}`).innerHTML = renderKanbanColumn(cards, issues);
     }
 
     // QA column: all issues you implemented awaiting review
     const qaRegular = issues.filter(i => i.status === 'QUALITY ASSURANCE');
     const qaCount = qaRegular.length;
     document.getElementById('cnt-qa').textContent = qaCount;
-    document.getElementById('cards-qa').innerHTML = qaRegular.map(jiraCard).join('') ||
-      '<div style="padding:8px 10px;color:var(--dim);font-size:14px">–</div>';
+    document.getElementById('cards-qa').innerHTML = renderKanbanColumn(qaRegular, issues);
 
     // FOR MY REVIEW: unassigned teknisk_QA issues I did not implement
     const implementedKeys = new Set(issues.map(i => i.key));
