@@ -1,0 +1,267 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Jenkins — Jiraffe</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;600&family=Kalam:wght@300;400;700&family=Permanent+Marker&family=Share+Tech+Mono&family=VT323&display=swap" rel="stylesheet">
+  <style>
+    /* Themes — kept in sync with index.html / worklog.html. The active theme is
+       shared via localStorage('jiraffe-theme') and applied by the early script. */
+    :root,
+    [data-theme="amber"] {
+      --bg:#0a0700; --panel:#100c00; --border:#8a5500; --dim:#e0aa38; --text:#f5aa30; --bright:#ffd455;
+      --green:#6ed464; --red:#f05858; --yellow:#f8c838; --blue:#7eb8ff;
+      --sel-bg:rgba(255,212,85,0.07); --hover-bg:rgba(212,135,10,0.04);
+      --row-border-soft:rgba(138,85,0,0.30); --dim-faint:rgba(138,85,0,0.50); --overlay:rgba(0,0,0,0.75);
+      --scanline:rgba(0,0,0,0.07); --scanline-step:4px;
+      --font:'Share Tech Mono',monospace; --font-display:'Share Tech Mono',monospace; --case:none;
+      --glow:0 0 1px rgba(245,170,48,0.35); --frame-w:0px; --frame-c:transparent;
+    }
+    [data-theme="green"] {
+      --bg:#000800; --panel:#001209; --border:#1f7a3a; --dim:#3fd06a; --text:#46e878; --bright:#9dffb0;
+      --green:#6ed464; --red:#ff6b6b; --yellow:#e8e060; --blue:#6bd0ff;
+      --sel-bg:rgba(157,255,176,0.08); --hover-bg:rgba(40,200,90,0.05);
+      --row-border-soft:rgba(20,90,40,0.30); --dim-faint:rgba(63,208,106,0.40); --overlay:rgba(0,0,0,0.78);
+      --scanline:rgba(0,0,0,0.14); --scanline-step:3px;
+      --font:'VT323',monospace; --font-display:'VT323',monospace; --case:uppercase;
+      --glow:0 0 3px rgba(70,232,120,0.5);
+    }
+    [data-theme="ice"] {
+      --bg:#00060d; --panel:#031019; --border:#1d6a8a; --dim:#52b8d8; --text:#7fd4ee; --bright:#b8f0ff;
+      --green:#6ed4a8; --red:#ff7a7a; --yellow:#f0d060; --blue:#8ec5ff;
+      --sel-bg:rgba(184,240,255,0.08); --hover-bg:rgba(40,150,200,0.05);
+      --row-border-soft:rgba(20,80,110,0.30); --dim-faint:rgba(82,184,216,0.40); --overlay:rgba(0,8,16,0.78);
+      --scanline:rgba(0,0,0,0.05); --scanline-step:6px;
+      --font:'IBM Plex Mono',monospace; --font-display:'IBM Plex Mono',monospace; --case:none;
+      --glow:0 0 1px rgba(127,212,238,0.25);
+    }
+    [data-theme="paper"] {
+      --bg:#f4efe3; --panel:#eae3d2; --border:#b09a6a; --dim:#7a6a45; --text:#3a3325; --bright:#1c1810;
+      --green:#3a8a40; --red:#c83232; --yellow:#b8881a; --blue:#2a6abf;
+      --sel-bg:rgba(120,90,30,0.10); --hover-bg:rgba(120,90,30,0.06);
+      --row-border-soft:rgba(120,100,60,0.25); --dim-faint:rgba(122,106,69,0.50); --overlay:rgba(40,35,25,0.55);
+      --scanline:rgba(0,0,0,0.015); --scanline-step:8px;
+      --font:'IBM Plex Mono',monospace; --font-display:'IBM Plex Mono',monospace; --case:none; --glow:none;
+    }
+    [data-theme="c64"] {
+      --bg:#40318d; --panel:#4a3ba2; --border:#7869c4; --dim:#9b8fe0; --text:#c4bdf2; --bright:#ffffff;
+      --green:#94e089; --red:#e58178; --yellow:#cfd06a; --blue:#9b8fff;
+      --sel-bg:rgba(180,170,245,0.12); --hover-bg:rgba(150,135,230,0.14);
+      --row-border-soft:rgba(120,105,196,0.30); --dim-faint:rgba(155,143,224,0.45); --overlay:rgba(18,10,55,0.80);
+      --scanline:rgba(0,0,0,0.10); --scanline-step:3px;
+      --font:'VT323',monospace; --font-display:'VT323',monospace; --case:uppercase;
+      --glow:0 0 2px rgba(155,143,255,0.55); --frame-w:9px; --frame-c:#7869c4;
+    }
+    [data-theme="board"] {
+      --bg:#c2a173; --panel:#d9c39d; --border:#7a5a36; --dim:#5c4a30; --text:#2c2418; --bright:#14100a;
+      --green:#2f7d33; --red:#bf3328; --yellow:#a8780f; --blue:#2f5fa8;
+      --sel-bg:rgba(168,120,15,0.16); --hover-bg:rgba(90,65,35,0.10);
+      --row-border-soft:rgba(90,65,35,0.22); --dim-faint:rgba(92,74,48,0.50); --overlay:rgba(40,30,18,0.55);
+      --scanline:rgba(0,0,0,0); --scanline-step:8px;
+      --font:'Kalam',cursive; --font-display:'Permanent Marker',cursive; --case:none; --glow:none;
+      --frame-w:12px; --frame-c:#6e4a2a;
+    }
+    [data-theme="board"] body {
+      background-color:#c2a173;
+      background-image:
+        radial-gradient(circle at 18% 28%, rgba(108,74,40,0.22) 0 1.5px, transparent 2px),
+        radial-gradient(circle at 63% 54%, rgba(92,60,28,0.18) 0 1.5px, transparent 2px),
+        radial-gradient(circle at 82% 20%, rgba(132,96,56,0.20) 0 1.5px, transparent 2px),
+        radial-gradient(circle at 40% 82%, rgba(88,56,26,0.20) 0 1.5px, transparent 2px),
+        radial-gradient(circle at 90% 75%, rgba(120,86,48,0.16) 0 1.5px, transparent 2px);
+      background-size:23px 23px,17px 17px,29px 29px,19px 19px,13px 13px;
+    }
+
+    * { box-sizing:border-box; margin:0; padding:0; }
+    body {
+      background:var(--bg); color:var(--text); font-family:var(--font); text-shadow:var(--glow,none);
+      font-size:18px; padding:calc(20px + var(--frame-w, 0px)); line-height:1.6;
+    }
+    body::after {
+      content:""; position:fixed; inset:0; pointer-events:none; z-index:9999;
+      background:repeating-linear-gradient(0deg,
+        transparent, transparent calc(var(--scanline-step,4px)/2),
+        var(--scanline) calc(var(--scanline-step,4px)/2), var(--scanline) var(--scanline-step,4px));
+    }
+    body::before {
+      content:""; position:fixed; inset:0; pointer-events:none; z-index:9998;
+      border:var(--frame-w,0px) solid var(--frame-c,transparent);
+    }
+
+    header { margin-bottom:18px; display:flex; align-items:baseline; gap:18px; flex-wrap:wrap; }
+    h1 { color:var(--bright); font-size:28px; letter-spacing:2px; font-family:var(--font-display); text-transform:var(--case,none); min-width:320px; flex-shrink:0; }
+    .nav-link { color:var(--dim); text-decoration:none; font-size:16px; }
+    .nav-link:hover { color:var(--bright); }
+    #updated { color:var(--dim-faint); font-size:14px; }
+
+    /* failure banner — mirrors the dashboard's NOT IN SPRINT alert language */
+    .banner {
+      border:1px solid var(--red); background:rgba(240,88,88,0.08); color:var(--text);
+      padding:12px 16px; margin-bottom:20px; font-size:17px; letter-spacing:0.5px;
+      display:flex; align-items:center; gap:12px;
+      animation:banner-flash 1.2s ease-in-out infinite;
+    }
+    .banner strong { color:var(--red); }
+    @keyframes banner-flash {
+      0%,100% { box-shadow:0 0 4px rgba(240,88,88,0.25); }
+      50%     { box-shadow:0 0 16px rgba(240,88,88,0.6); }
+    }
+    .banner.ok { border-color:var(--green); background:rgba(110,212,100,0.06); animation:none; }
+    .banner.ok strong { color:var(--green); }
+
+    /* shared cross-page navbar */
+    .page-nav { display:flex; gap:4px; flex-wrap:wrap; align-items:center; flex-shrink:0; }
+    .page-nav a { color:var(--dim); text-decoration:none; font-size:15px; letter-spacing:1px; padding:4px 10px; border:1px solid transparent; }
+    .page-nav a:hover { color:var(--bright); border-color:var(--border); }
+    .page-nav a.active { color:var(--bright); border-color:var(--border); background:var(--sel-bg); }
+
+    /* master build rows */
+    .rows { border:1px solid var(--border); max-width:820px; }
+    .brow {
+      display:flex; align-items:center; gap:14px; padding:11px 14px;
+      text-decoration:none; color:inherit; border-bottom:1px solid var(--row-border-soft);
+      border-left:4px solid transparent;
+    }
+    .brow:last-child { border-bottom:none; }
+    .brow:hover { background:var(--hover-bg); }
+    .brow .dot { width:11px; height:11px; border-radius:50%; flex-shrink:0; background:var(--dim-faint); }
+    .brow .label { flex:1 1 auto; color:var(--bright); font-size:17px; letter-spacing:0.5px; word-break:break-word; }
+    .brow .state { width:100px; text-align:right; font-family:var(--font-display); letter-spacing:1px; }
+    .brow .commit { width:120px; text-align:right; color:var(--dim); font-size:13px; }
+    .brow .when { width:80px; text-align:right; color:var(--dim); font-size:13px; }
+    .brow .arrow { width:16px; text-align:right; color:var(--dim-faint); }
+
+    .brow.SUCCESS { border-left-color:var(--green); }
+    .brow.SUCCESS .dot { background:var(--green); }  .brow.SUCCESS .state { color:var(--green); }
+    .brow.FAILURE, .brow.UNSTABLE { border-left-color:var(--red); animation:row-flash 1.2s ease-in-out infinite; }
+    .brow.FAILURE .dot, .brow.UNSTABLE .dot { background:var(--red); }
+    .brow.FAILURE .state, .brow.UNSTABLE .state { color:var(--red); }
+    @keyframes row-flash { 0%,100% { background:transparent; } 50% { background:rgba(240,88,88,0.13); } }
+    .brow.BUILDING { border-left-color:var(--yellow); }
+    .brow.BUILDING .dot { background:var(--yellow); animation:pulse 1.4s ease-in-out infinite; }
+    .brow.BUILDING .state { color:var(--yellow); }
+    @keyframes pulse { 0%,100%{opacity:1} 50%{opacity:0.4} }
+    .brow.ABORTED, .brow.UNKNOWN { border-left-color:var(--dim-faint); }
+    .brow.ABORTED .state, .brow.UNKNOWN .state { color:var(--dim-faint); }
+
+    .empty { color:var(--dim); font-size:15px; max-width:680px; line-height:1.5; }
+    .empty code { color:var(--bright); }
+  </style>
+  <script>
+    // Honor the theme chosen on the dashboard (shared via localStorage).
+    (function () {
+      try { var t = localStorage.getItem('jiraffe-theme'); if (t) document.documentElement.setAttribute('data-theme', t); } catch (e) {}
+    })();
+  </script>
+</head>
+<body>
+
+<header>
+  <h1>🔧 JENKINS</h1>
+  <nav class="page-nav">
+    <a href="index.html">◆ DASHBOARD</a>
+    <a href="time.html">⏱ TIMESHEET</a>
+    <a href="worklog.html">💰 WORKLOG</a>
+    <a href="leave.html">🌴 FERIE</a>
+    <a href="jenkins.html" class="active">🔧 JENKINS</a>
+    <a href="copilot.html">🤖 COPILOT <span id="nav-copilot-total">–</span></a>
+  </nav>
+  <span id="updated"></span>
+</header>
+
+<div id="content">Loading…</div>
+
+<script>
+const el = id => document.getElementById(id);
+const BASE_TITLE = 'Jenkins — Jiraffe';
+const RED = new Set(['FAILURE', 'UNSTABLE']);
+const STATE_LABEL = { SUCCESS:'PASS', FAILURE:'FAIL', UNSTABLE:'UNSTABLE', BUILDING:'BUILDING', ABORTED:'ABORTED', UNKNOWN:'NO DATA' };
+
+function relTime(ms) {
+  if (!ms) return 'never';
+  const s = (Date.now() - ms) / 1000;
+  if (s < 60) return 'just now';
+  const m = s / 60; if (m < 60) return `${Math.round(m)}m ago`;
+  const h = m / 60; if (h < 24) return `${Math.round(h)}h ago`;
+  return `${Math.round(h / 24)}d ago`;
+}
+function dur(ms) {
+  if (!ms) return '';
+  const m = Math.floor(ms / 60000), s = Math.round((ms % 60000) / 1000);
+  return m ? `${m}m ${s}s` : `${s}s`;
+}
+function esc(s) { return String(s ?? '').replace(/[&<>"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c])); }
+
+function render(data) {
+  const pipes = data.pipelines || [];
+  if (!pipes.length) {
+    el('updated').textContent = '';
+    document.title = BASE_TITLE;
+    el('content').innerHTML = `<div class="empty">No pipelines configured. Add them to
+      <code>secrets/config</code> as <code>MASTER_BUILDS</code> (one
+      <code>Label|PROJECT/repoSlug</code> per line), then wait for the next poll.</div>`;
+    return;
+  }
+  // failures first, then building, then the rest — so red is always on top
+  const order = { FAILURE:0, UNSTABLE:0, BUILDING:1, UNKNOWN:2, ABORTED:3, SUCCESS:4 };
+  const sorted = [...pipes].sort((a, b) => (order[a.state] ?? 9) - (order[b.state] ?? 9));
+  const failing = pipes.filter(p => RED.has(p.state));
+
+  // tab title carries the failure count across tabs
+  document.title = failing.length ? `(${failing.length}!) ${BASE_TITLE}` : BASE_TITLE;
+  el('updated').textContent = data.updated ? 'updated ' + relTime(Date.parse(data.updated)) : '';
+
+  const banner = failing.length
+    ? `<div class="banner"><span style="font-size:22px">⚠</span>
+        <span><strong>${failing.length} MASTER BUILD${failing.length > 1 ? 'S' : ''} FAILING</strong>
+        — ${failing.map(p => esc(p.label)).join(', ')}</span></div>`
+    : `<div class="banner ok"><span style="font-size:20px">✓</span>
+        <span><strong>All master builds green</strong></span></div>`;
+
+  const rows = sorted.map(p => {
+    const st = STATE_LABEL[p.state] || p.state;
+    const commit = p.commit ? `@${esc(p.commit)}` : (p.number ? `#${p.number}` : '');
+    const href = p.build_url || p.url || '#';
+    return `<a class="brow ${esc(p.state)}" href="${esc(href)}" target="_blank" rel="noopener">
+      <span class="dot"></span>
+      <span class="label">${esc(p.label)}</span>
+      <span class="state">${esc(st)}</span>
+      <span class="commit">${commit}</span>
+      <span class="when">${relTime(p.timestamp)}</span>
+      <span class="arrow">→</span>
+    </a>`;
+  }).join('');
+
+  el('content').innerHTML = banner + `<div class="rows">${rows}</div>`;
+}
+
+async function load() {
+  try {
+    const data = await fetch('data/jenkins.json', {cache: 'no-store'}).then(r => r.json());
+    render(data);
+  } catch (e) {
+    el('content').innerHTML = `<div class="empty">No <code>data/jenkins.json</code> yet — configure
+      <code>JENKINS_JOBS</code> and let the poller run once.</div>`;
+    document.title = BASE_TITLE;
+  }
+}
+
+load();
+setInterval(load, 30000);   // poller writes every ~60s; refresh twice as often
+</script>
+<script>
+  (function () {
+    function loadCopilotNav() {
+      fetch('data/copilot.json', {cache:'no-store'}).then(r => r.json()).then(d => {
+        const el = document.getElementById('nav-copilot-total');
+        if (el) el.textContent = (d.my_month_total ?? 0).toLocaleString();
+      }).catch(() => {});
+    }
+    loadCopilotNav();
+    setInterval(loadCopilotNav, 5 * 60 * 1000);
+  })();
+</script>
+</body>
+</html>
