@@ -2,6 +2,6 @@ port: 666
 poll_active_seconds: 15
 poll_build_stale_seconds: 240
 tui_refresh_seconds: 15
-work_hours_enabled: false
+work_hours_enabled: true
 work_start_hour: 8
 work_end_hour: 18

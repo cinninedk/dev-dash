@@ -1,0 +1,449 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Ferie & fravær — Jiraffe</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;600&family=Kalam:wght@300;400;700&family=Permanent+Marker&family=Share+Tech+Mono&family=VT323&display=swap" rel="stylesheet">
+  <style>
+    /* Themes — kept in sync with index.html. The active theme is shared via
+       localStorage('jiraffe-theme') and applied by the early <head> script. */
+    :root,
+    [data-theme="amber"] {
+      --bg:     #0a0700;
+      --panel:  #100c00;
+      --border: #8a5500;
+      --dim:    #e0aa38;
+      --text:   #f5aa30;
+      --bright: #ffd455;
+      --green:  #6ed464;
+      --red:    #f05858;
+      --yellow: #f8c838;
+      --blue:   #7eb8ff;
+      --sel-bg:          rgba(255,212,85,0.07);
+      --hover-bg:        rgba(212,135,10,0.04);
+      --row-border-soft: rgba(138,85,0,0.30);
+      --dim-faint:       rgba(138,85,0,0.50);
+      --overlay:         rgba(0,0,0,0.75);
+      --scanline:        rgba(0,0,0,0.07);
+      --scanline-step:   4px;
+      --font:            'Share Tech Mono', monospace;
+      --font-display:    'Share Tech Mono', monospace;
+      --case:            none;
+      --glow:            0 0 1px rgba(245,170,48,0.35);
+      --frame-w:         0px;
+      --frame-c:         transparent;
+    }
+
+    [data-theme="green"] {
+      --bg:     #000800;
+      --panel:  #001209;
+      --border: #1f7a3a;
+      --dim:    #3fd06a;
+      --text:   #46e878;
+      --bright: #9dffb0;
+      --green:  #6ed464;
+      --red:    #ff6b6b;
+      --yellow: #e8e060;
+      --blue:   #6bd0ff;
+      --sel-bg:          rgba(157,255,176,0.08);
+      --hover-bg:        rgba(40,200,90,0.05);
+      --row-border-soft: rgba(20,90,40,0.30);
+      --dim-faint:       rgba(63,208,106,0.40);
+      --overlay:         rgba(0,0,0,0.78);
+      --scanline:        rgba(0,0,0,0.14);
+      --scanline-step:   3px;
+      --font:            'VT323', monospace;
+      --font-display:    'VT323', monospace;
+      --case:            uppercase;
+      --glow:            0 0 3px rgba(70,232,120,0.5);
+    }
+
+    [data-theme="ice"] {
+      --bg:     #00060d;
+      --panel:  #031019;
+      --border: #1d6a8a;
+      --dim:    #52b8d8;
+      --text:   #7fd4ee;
+      --bright: #b8f0ff;
+      --green:  #6ed4a8;
+      --red:    #ff7a7a;
+      --yellow: #f0d060;
+      --blue:   #8ec5ff;
+      --sel-bg:          rgba(184,240,255,0.08);
+      --hover-bg:        rgba(40,150,200,0.05);
+      --row-border-soft: rgba(20,80,110,0.30);
+      --dim-faint:       rgba(82,184,216,0.40);
+      --overlay:         rgba(0,8,16,0.78);
+      --scanline:        rgba(0,0,0,0.05);
+      --scanline-step:   6px;
+      --font:            'IBM Plex Mono', monospace;
+      --font-display:    'IBM Plex Mono', monospace;
+      --case:            none;
+      --glow:            0 0 1px rgba(127,212,238,0.25);
+    }
+
+    [data-theme="paper"] {
+      --bg:     #f4efe3;
+      --panel:  #eae3d2;
+      --border: #b09a6a;
+      --dim:    #7a6a45;
+      --text:   #3a3325;
+      --bright: #1c1810;
+      --green:  #3a8a40;
+      --red:    #c83232;
+      --yellow: #b8881a;
+      --blue:   #2a6abf;
+      --sel-bg:          rgba(120,90,30,0.10);
+      --hover-bg:        rgba(120,90,30,0.06);
+      --row-border-soft: rgba(120,100,60,0.25);
+      --dim-faint:       rgba(122,106,69,0.50);
+      --overlay:         rgba(40,35,25,0.55);
+      --scanline:        rgba(0,0,0,0.015);
+      --scanline-step:   8px;
+      --font:            'IBM Plex Mono', monospace;
+      --font-display:    'IBM Plex Mono', monospace;
+      --case:            none;
+      --glow:            none;
+    }
+
+    [data-theme="c64"] {
+      --bg:     #40318d;
+      --panel:  #4a3ba2;
+      --border: #7869c4;
+      --dim:    #9b8fe0;
+      --text:   #c4bdf2;
+      --bright: #ffffff;
+      --green:  #94e089;
+      --red:    #e58178;
+      --yellow: #cfd06a;
+      --blue:   #9b8fff;
+      --sel-bg:          rgba(180,170,245,0.12);
+      --hover-bg:        rgba(150,135,230,0.14);
+      --row-border-soft: rgba(120,105,196,0.30);
+      --dim-faint:       rgba(155,143,224,0.45);
+      --overlay:         rgba(18,10,55,0.80);
+      --scanline:        rgba(0,0,0,0.10);
+      --scanline-step:   3px;
+      --font:            'VT323', monospace;
+      --font-display:    'VT323', monospace;
+      --case:            uppercase;
+      --glow:            0 0 2px rgba(155,143,255,0.55);
+      --frame-w:         9px;
+      --frame-c:         #7869c4;
+    }
+
+    [data-theme="board"] {
+      --bg:     #c2a173;
+      --panel:  #d9c39d;
+      --border: #7a5a36;
+      --dim:    #5c4a30;
+      --text:   #2c2418;
+      --bright: #14100a;
+      --green:  #2f7d33;
+      --red:    #bf3328;
+      --yellow: #a8780f;
+      --blue:   #2f5fa8;
+      --sel-bg:          rgba(168,120,15,0.16);
+      --hover-bg:        rgba(90,65,35,0.10);
+      --row-border-soft: rgba(90,65,35,0.22);
+      --dim-faint:       rgba(92,74,48,0.50);
+      --overlay:         rgba(40,30,18,0.55);
+      --scanline:        rgba(0,0,0,0);
+      --scanline-step:   8px;
+      --font:            'Kalam', cursive;
+      --font-display:    'Permanent Marker', cursive;
+      --case:            none;
+      --glow:            none;
+      --frame-w:         12px;
+      --frame-c:         #6e4a2a;
+    }
+
+    /* Corkboard texture, shared with the dashboard's board theme. */
+    [data-theme="board"] body {
+      background-color: #c2a173;
+      background-image:
+        radial-gradient(circle at 18% 28%, rgba(108,74,40,0.22) 0 1.5px, transparent 2px),
+        radial-gradient(circle at 63% 54%, rgba(92,60,28,0.18) 0 1.5px, transparent 2px),
+        radial-gradient(circle at 82% 20%, rgba(132,96,56,0.20) 0 1.5px, transparent 2px),
+        radial-gradient(circle at 40% 82%, rgba(88,56,26,0.20) 0 1.5px, transparent 2px),
+        radial-gradient(circle at 90% 75%, rgba(120,86,48,0.16) 0 1.5px, transparent 2px);
+      background-size: 23px 23px, 17px 17px, 29px 29px, 19px 19px, 13px 13px;
+    }
+
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+
+    body {
+      background: var(--bg);
+      color: var(--text);
+      font-family: var(--font);
+      text-shadow: var(--glow, none);
+      font-size: 20px;
+      padding: calc(20px + var(--frame-w, 0px));
+      line-height: 1.6;
+    }
+
+    /* CRT scanline + screen frame overlays — match the dashboard */
+    body::after {
+      content: "";
+      position: fixed;
+      inset: 0;
+      background: repeating-linear-gradient(
+        0deg,
+        transparent, transparent calc(var(--scanline-step, 4px) / 2),
+        var(--scanline) calc(var(--scanline-step, 4px) / 2), var(--scanline) var(--scanline-step, 4px)
+      );
+      pointer-events: none;
+      z-index: 9999;
+    }
+    body::before {
+      content: "";
+      position: fixed;
+      inset: 0;
+      border: var(--frame-w, 0px) solid var(--frame-c, transparent);
+      pointer-events: none;
+      z-index: 9998;
+    }
+
+    header { margin-bottom: 18px; display: flex; align-items: baseline; gap: 18px; flex-wrap: wrap; }
+    h1 { color: var(--bright); font-size: 28px; letter-spacing: 2px; font-family: var(--font-display); text-transform: var(--case, none); min-width: 320px; flex-shrink: 0; }
+    .page-nav { display:flex; gap:4px; flex-wrap:wrap; align-items:center; flex-shrink:0; }
+    .page-nav a { color:var(--dim); text-decoration:none; font-size:16px; letter-spacing:1px; padding:4px 10px; border:1px solid transparent; }
+    .page-nav a:hover { color:var(--bright); border-color:var(--border); }
+    .page-nav a.active { color:var(--bright); border-color:var(--border); background:var(--sel-bg); }
+
+    select, input {
+      background: var(--panel);
+      color: var(--text);
+      border: 1px solid var(--border);
+      font-family: inherit;
+      font-size: 16px;
+      padding: 4px 8px;
+    }
+    select:focus, input:focus { outline: none; border-color: var(--bright); }
+    #year-select { font-size: 17px; }
+
+    .section { margin-bottom: 28px; }
+    .section-title {
+      color: var(--dim); font-size: 15px; letter-spacing: 2px;
+      text-transform: uppercase; margin-bottom: 10px;
+      border-bottom: 1px solid var(--row-border-soft); padding-bottom: 4px;
+    }
+
+    .cards { display: flex; flex-wrap: wrap; gap: 14px; }
+    .card {
+      background: var(--panel); border: 1px solid var(--border);
+      padding: 12px 16px; min-width: 180px; flex: 1 1 180px;
+    }
+    .card .label { color: var(--dim); font-size: 14px; letter-spacing: 1px; text-transform: uppercase; }
+    .card .value { color: var(--bright); font-size: 26px; font-family: var(--font-display); margin-top: 4px; }
+    .card .sub { color: var(--dim); font-size: 14px; margin-top: 4px; }
+
+    .leave-wrap { display: flex; gap: 30px; flex-wrap: wrap; align-items: flex-start; }
+    .leave-form { display: flex; flex-direction: column; gap: 8px; min-width: 240px; }
+    .leave-form .row { display: flex; gap: 8px; align-items: center; }
+    .leave-form label { color: var(--dim); font-size: 14px; min-width: 70px; }
+    .btn {
+      background: var(--panel); color: var(--text); border: 1px solid var(--border);
+      font-family: inherit; font-size: 16px; padding: 6px 14px; cursor: pointer;
+    }
+    .btn:hover { border-color: var(--bright); color: var(--bright); }
+    .btn-x { background: none; border: none; color: var(--dim); cursor: pointer; font-family: inherit; font-size: 16px; padding: 0 6px; }
+    .btn-x:hover { color: var(--red); }
+    table.leave { border-collapse: collapse; font-size: 16px; }
+    table.leave td { padding: 3px 10px; border-bottom: 1px solid var(--row-border-soft); }
+    .lt-vacation { color: var(--green); }
+    .lt-sick { color: var(--red); }
+    .lt-other { color: var(--yellow); }
+    .note { color: var(--dim); font-size: 14px; margin-top: 6px; max-width: 760px; line-height: 1.4; }
+    .muted { color: var(--dim-faint) !important; }
+    .neg { color: var(--red) !important; }
+  </style>
+  <script>
+    // Honor the theme chosen on the dashboard (shared via localStorage).
+    (function () {
+      try {
+        var t = localStorage.getItem('jiraffe-theme');
+        if (t) document.documentElement.setAttribute('data-theme', t);
+      } catch (e) {}
+    })();
+  </script>
+</head>
+<body>
+
+<header>
+  <h1>🌴 FERIE & FRAVÆR</h1>
+  <nav class="page-nav">
+    <a href="index.html">◆ DASHBOARD</a>
+    <a href="time.html">⏱ TIMESHEET</a>
+    <a href="worklog.html">💰 WORKLOG</a>
+    <a href="leave.html" class="active">🌴 FERIE</a>
+    <a href="jenkins.html">🔧 JENKINS</a>
+    <a href="copilot.html">🤖 COPILOT <span id="nav-copilot-total">–</span></a>
+  </nav>
+  <select id="year-select" onchange="changeYear(this.value)"></select>
+</header>
+
+<div id="content">Loading…</div>
+
+<script>
+const el = id => document.getElementById(id);
+
+let WH = null;          // work-hours.json
+let selectedYear = null;
+let yearCfg = null;
+let allHolidays = new Set();     // all years, for leave generation
+
+const today = new Date();
+const curY = today.getFullYear();
+const curM = today.getMonth() + 1;
+
+const pad = n => String(n).padStart(2, '0');
+const ymd = (y, m, d) => `${y}-${pad(m)}-${pad(d)}`;
+const hrs = n => (Math.round(n * 100) / 100).toLocaleString('da-DK', {maximumFractionDigits: 2});
+
+async function load() {
+  WH = await fetch('data/work-hours.json', {cache: 'no-store'}).then(r => r.json());
+
+  allHolidays = new Set();
+  for (const y of Object.values(WH.years || {})) (y.holidays || []).forEach(h => allHolidays.add(h));
+
+  const years = Object.keys(WH.years || {}).sort();
+  const sel = el('year-select');
+  sel.innerHTML = years.map(y => `<option value="${y}">${y}</option>`).join('');
+  selectedYear = String(WH.current_year && WH.years[WH.current_year] ? WH.current_year : years[years.length - 1]);
+  sel.value = selectedYear;
+
+  applyYear();
+}
+
+function applyYear() {
+  yearCfg = WH.years[selectedYear];
+  render();
+}
+
+function changeYear(y) { selectedYear = String(y); applyYear(); }
+
+function render() {
+  if (!yearCfg) { el('content').innerHTML = `<p class="muted">Ingen data for ${selectedYear}.</p>`; return; }
+  el('content').innerHTML = renderLeave();
+}
+
+function renderLeave() {
+  const c = yearCfg.constants;
+  const dn = c.dagsnormtimer;
+  const quota = (c.feriedage || 0) + (c.feriefridag || 0);
+  const rows = (WH.leave || []).filter(l => l.date.slice(0, 4) === selectedYear)
+    .sort((a, b) => b.date.localeCompare(a.date));
+  const labels = {vacation: 'Ferie', sick: 'Sygdom', other: 'Andet'};
+
+  // day-equivalent totals per type — a "day" is dagsnormtimer hours, so a half
+  // day (e.g. 3.7t) counts as half a day rather than a whole one.
+  const totalsH = {vacation: 0, sick: 0, other: 0};
+  for (const l of rows) totalsH[l.type] = (totalsH[l.type] || 0) + l.hours;
+  const vacDays = totalsH.vacation / dn;
+  const vacLeft = quota - vacDays;
+
+  let html = `<div class="section"><div class="cards">`;
+  html += card('Feriedage brugt', `${hrs(vacDays)}<span style="font-size:15px;color:var(--dim)"> / ${quota}</span>`,
+    vacLeft >= 0 ? `${hrs(vacLeft)} dage tilbage` : `<span class="neg">${hrs(-vacLeft)} dage over kvote</span>`);
+  html += card('Sygedage', hrs(totalsH.sick / dn), `${hrs(totalsH.sick)} t i ${selectedYear}`, true);
+  html += card('Andet fravær', hrs(totalsH.other / dn), `${hrs(totalsH.other)} t i ${selectedYear}`, true);
+  html += `</div></div>`;
+
+  let list = rows.length
+    ? `<table class="leave">${rows.map(l => `<tr>
+        <td>${l.date}</td>
+        <td class="lt-${l.type}">${labels[l.type] || l.type}</td>
+        <td>${hrs(l.hours)} t</td>
+        <td>${l.note ? escapeHtml(l.note) : ''}</td>
+        <td><button class="btn-x" title="Slet" onclick="delLeave('${l.id}', '${l.date}', '${labels[l.type] || l.type}')">✕</button></td>
+      </tr>`).join('')}</table>`
+    : `<p class="muted">Intet registreret for ${selectedYear}.</p>`;
+
+  html += `<div class="section"><div class="section-title">Ferie & fravær</div>
+    <div class="leave-wrap">
+      <div class="leave-form">
+        <div class="row"><label>Type</label>
+          <select id="lv-type">
+            <option value="vacation">Ferie (tæller i bonus)</option>
+            <option value="sick">Sygdom</option>
+            <option value="other">Andet fravær</option>
+          </select></div>
+        <div class="row"><label>Fra</label><input type="date" id="lv-start" value="${ymd(curY, curM, today.getDate())}"></div>
+        <div class="row"><label>Til</label><input type="date" id="lv-end" placeholder="(samme dag)"></div>
+        <div class="row"><label>Timer/dag</label><input type="number" id="lv-hours" value="7.4" step="0.1" min="0" style="width:80px"></div>
+        <div class="row"><label>Note</label><input type="text" id="lv-note" placeholder="(valgfri)"></div>
+        <button class="btn" onclick="addLeave()">+ Tilføj</button>
+        <div class="note">Et interval opretter én post pr. hverdag (helligdage springes over). Sæt timer/dag til fx 3,7 for en halv dag.</div>
+      </div>
+      <div>${list}</div>
+    </div></div>`;
+
+  return html;
+}
+
+function card(label, value, sub, muted) {
+  return `<div class="card"><div class="label">${label}</div>
+    <div class="value${muted ? ' muted' : ''}">${value}</div><div class="sub">${sub || ''}</div></div>`;
+}
+
+function escapeHtml(s) { return s.replace(/[&<>"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c])); }
+
+// ── mutations ────────────────────────────────────────────────────────
+async function postLeave(body) {
+  const r = await fetch('/api/leave', {method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify(body)});
+  if (!r.ok) throw new Error(await r.text());
+  return r.json();
+}
+
+async function addLeave() {
+  const type = el('lv-type').value;
+  const start = el('lv-start').value;
+  const end = el('lv-end').value || start;
+  const hoursRaw = el('lv-hours').value.trim();
+  const perDay = hoursRaw === '' ? yearCfg.constants.dagsnormtimer : parseFloat(hoursRaw);
+  const note = el('lv-note').value.trim();
+  if (!start) { alert('Vælg en startdato'); return; }
+  if (end < start) { alert('Slutdato er før startdato'); return; }
+
+  const entries = [];
+  for (let d = new Date(start + 'T00:00:00'); d <= new Date(end + 'T00:00:00'); d.setDate(d.getDate() + 1)) {
+    const wd = d.getDay();
+    if (wd === 0 || wd === 6) continue;
+    const ds = ymd(d.getFullYear(), d.getMonth() + 1, d.getDate());
+    if (allHolidays.has(ds)) continue;
+    entries.push({date: ds, type, hours: perDay, note});
+  }
+  if (!entries.length) { alert('Ingen hverdage i intervallet'); return; }
+  try {
+    const res = await postLeave({action: 'add', entries});
+    WH.leave = res.leave; render();
+  } catch (e) { alert('Kunne ikke gemme: ' + e.message); }
+}
+
+async function delLeave(id, date, label) {
+  if (!confirm(`Slet ${label.toLowerCase()} ${date}?`)) return;
+  try {
+    const res = await postLeave({action: 'delete', id});
+    WH.leave = res.leave; render();
+  } catch (e) { alert('Kunne ikke slette: ' + e.message); }
+}
+
+load().catch(e => { el('content').innerHTML = `<p class="neg">Kunne ikke indlæse: ${e.message}</p>`; });
+</script>
+<script>
+  (function () {
+    function loadCopilotNav() {
+      fetch('data/copilot.json', {cache:'no-store'}).then(r => r.json()).then(d => {
+        const el = document.getElementById('nav-copilot-total');
+        if (el) el.textContent = (d.my_month_total ?? 0).toLocaleString();
+      }).catch(() => {});
+    }
+    loadCopilotNav();
+    setInterval(loadCopilotNav, 5 * 60 * 1000);
+  })();
+</script>
+</body>
+</html>
