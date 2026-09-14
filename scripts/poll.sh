@@ -7,8 +7,23 @@ PASSWORD=$(cat "$ROOT/secrets/bitbucket-token")
 JIRA_PASSWORD=$(cat "$ROOT/secrets/jira-token")
 SONAR_PASSWORD=$(cat "$ROOT/secrets/sonar-token")
 
+# Every endpoint below sits behind the VPN. Without a timeout, a curl call
+# started while the VPN is down (or dropped mid-request) can block on the
+# dead socket for many minutes — the OS has no way to know the tunnel is
+# gone until its own retransmit timeout gives up. That wedges this whole
+# long-running loop even after the VPN comes back, since the stuck call
+# never returns to let the loop continue. Bound every call instead.
+CURL_OPTS=(--connect-timeout 3 --max-time 10)
+
+# Fast reachability probe (short-circuits vpn_ok well before CURL_OPTS'
+# own timeout would) — any HTTP response at all means the VPN/network is up,
+# regardless of status code, so no auth header is needed here.
+vpn_ok() {
+    curl -s -o /dev/null --connect-timeout 2 --max-time 3 "$STASH_URL"
+}
+
 # Derive Bitbucket username from own PRs (may differ from USERNAME in config)
-BB_USERNAME=$(curl -s -H "Authorization: Bearer $PASSWORD" \
+BB_USERNAME=$(curl -s "${CURL_OPTS[@]}" -H "Authorization: Bearer $PASSWORD" \
     "$STASH_URL/rest/api/1.0/dashboard/pull-requests?state=OPEN&role=AUTHOR&limit=1" \
     | jq -r '.values[0].author.user.name // ""')
 
@@ -16,6 +31,7 @@ OUT_DIR="$ROOT/data"
 mkdir -p "$OUT_DIR"
 BB_OUT="$OUT_DIR/bitbucket.json"
 JR_OUT="$OUT_DIR/jira.json"
+JK_OUT="$OUT_DIR/jenkins.json"
 CACHE_FILE="$OUT_DIR/.build-cache.json"
 
 log() { echo "[$(date '+%H:%M:%S')] $*"; }
@@ -26,7 +42,7 @@ cfg() { grep "^$1:" "$ROOT/config.yaml" 2>/dev/null | awk -F': *' '{print $2}'; 
 # Single curl: emits three lines — state, name, url
 get_build_info() {
     local commit="$1"
-    curl -s -H "Authorization: Bearer $PASSWORD" \
+    curl -s "${CURL_OPTS[@]}" -H "Authorization: Bearer $PASSWORD" \
         "$STASH_URL/rest/build-status/1.0/commits/$commit" \
         | jq -r '
             (.values[0].state // "NO_BUILD"),
@@ -34,11 +50,12 @@ get_build_info() {
             (.values[0].url   // "")'
 }
 
-# Two curls: emits five lines — "qg_raw<TAB>sonar_url", bugs, smells, vulns, hotspots
+# Up to three curls: emits six lines — "qg_raw<TAB>sonar_url", bugs, smells,
+# vulns, hotspots, building (true/false)
 get_sonar_info() {
-    local project="$1" slug="$2" commit="$3"
+    local project="$1" slug="$2" commit="$3" cached_sonar_url="$4"
     local reports
-    reports=$(curl -s -H "Authorization: Bearer $PASSWORD" \
+    reports=$(curl -s "${CURL_OPTS[@]}" -H "Authorization: Bearer $PASSWORD" \
         "$STASH_URL/rest/insights/1.0/projects/$project/repos/$slug/commits/$commit/reports" \
         | LC_ALL=C sed 's/\\uD[89ABab][0-9A-Fa-f][0-9A-Fa-f]\\u[Dd][CDEFcdef][0-9A-Fa-f][0-9A-Fa-f]/?/g')
 
@@ -62,21 +79,47 @@ get_sonar_info() {
     IFS=$'\t' read -r sonar_link bugs smells vulns hotspots <<< "$row"
 
     local qg_raw="NONE"
-    if [ -n "$sonar_link" ] && [ "$sonar_link" != "null" ]; then
+    local building="false"
+
+    # Resolve project key/branch off whichever link we have: the current
+    # commit's own report if one has posted yet, else the last known link
+    # (from cache) — that's still enough to ask Sonar "are you analyzing
+    # this branch right now?" even before this commit's report shows up.
+    local lookup_url="$sonar_link"
+    if [ -z "$lookup_url" ] || [ "$lookup_url" = "null" ]; then
+        lookup_url="$cached_sonar_url"
+    fi
+
+    if [ -n "$lookup_url" ] && [ "$lookup_url" != "null" ]; then
         local sonar_base sonar_proj sonar_branch
-        sonar_base=$(echo "$sonar_link" | grep -oE 'https?://[^/]+')
-        sonar_proj=$(echo "$sonar_link" | grep -oE '[?&]id=[^&]+' | cut -d= -f2 \
+        sonar_base=$(echo "$lookup_url" | grep -oE 'https?://[^/]+')
+        sonar_proj=$(echo "$lookup_url" | grep -oE '[?&]id=[^&]+' | cut -d= -f2 \
             | python3 -c "import sys,urllib.parse; print(urllib.parse.unquote(sys.stdin.read().strip()))" 2>/dev/null)
-        sonar_branch=$(echo "$sonar_link" | grep -oE '[?&]branch=[^&]+' | cut -d= -f2 \
+        sonar_branch=$(echo "$lookup_url" | grep -oE '[?&]branch=[^&]+' | cut -d= -f2 \
             | python3 -c "import sys,urllib.parse; print(urllib.parse.unquote(sys.stdin.read().strip()))" 2>/dev/null)
 
         if [ -n "$sonar_proj" ]; then
-            qg_raw=$(curl -s -H "Authorization: Bearer $SONAR_PASSWORD" \
+            if [ -n "$sonar_link" ] && [ "$sonar_link" != "null" ]; then
+                qg_raw=$(curl -s "${CURL_OPTS[@]}" -H "Authorization: Bearer $SONAR_PASSWORD" \
+                    --get \
+                    --data-urlencode "projectKey=$sonar_proj" \
+                    ${sonar_branch:+--data-urlencode "branch=$sonar_branch"} \
+                    "$sonar_base/api/qualitygates/project_status" \
+                    | jq -r '.projectStatus.status // "NONE"')
+            fi
+
+            # Compute Engine queue for this branch: PENDING/IN_PROGRESS means
+            # Sonar is actively analyzing it right now.
+            local ce
+            ce=$(curl -s "${CURL_OPTS[@]}" -H "Authorization: Bearer $SONAR_PASSWORD" \
                 --get \
-                --data-urlencode "projectKey=$sonar_proj" \
+                --data-urlencode "component=$sonar_proj" \
                 ${sonar_branch:+--data-urlencode "branch=$sonar_branch"} \
-                "$sonar_base/api/qualitygates/project_status" \
-                | jq -r '.projectStatus.status // "NONE"')
+                "$sonar_base/api/ce/component")
+            if echo "$ce" | jq -e '[(.queue // [])[] | select(.status == "PENDING" or .status == "IN_PROGRESS")] | length > 0' \
+                >/dev/null 2>&1; then
+                building="true"
+            fi
         fi
     fi
 
@@ -85,6 +128,7 @@ get_sonar_info() {
     echo "${smells:-0}"
     echo "${vulns:-0}"
     echo "${hotspots:-0}"
+    echo "${building}"
 }
 
 qg_label() {
@@ -102,7 +146,7 @@ get_unresolved_comments() {
     local count=0 start=0 is_last="false"
     while [ "$is_last" != "true" ]; do
         local body
-        body=$(curl -sf \
+        body=$(curl -sf "${CURL_OPTS[@]}" \
             -H "Authorization: Bearer $PASSWORD" \
             "${STASH_URL}/rest/api/1.0/projects/${project}/repos/${slug}/pull-requests/${pr_id}/activities?limit=100&start=${start}" \
             2>/dev/null) || break
@@ -168,7 +212,7 @@ process_prs_to_json() {
             fi
         fi
 
-        local build_state build_name build_url qg bugs smells vulns hotspots sonar_url
+        local build_state build_name build_url qg bugs smells vulns hotspots sonar_url sonar_building
         if $use_cache; then
             build_state=$(echo "$cached" | jq -r '.build_state')
             build_name=$(echo "$cached"  | jq -r '.build_name')
@@ -179,6 +223,7 @@ process_prs_to_json() {
             vulns=$(echo "$cached"       | jq -r '.vulns')
             hotspots=$(echo "$cached"    | jq -r '.hotspots')
             sonar_url=$(echo "$cached"   | jq -r '.sonar_url // ""')
+            sonar_building=$(echo "$cached" | jq -r '.sonar_building // false')
         else
             # Fresh fetch from Jenkins + SonarQube
             {
@@ -187,14 +232,16 @@ process_prs_to_json() {
                 IFS= read -r build_url
             } < <(get_build_info "$commit")
 
-            local qg_raw
+            local qg_raw prev_sonar_url_for_lookup
+            prev_sonar_url_for_lookup=$(echo "$cached" | jq -r '.sonar_url // ""')
             {
                 IFS= read -r qg_line
                 IFS= read -r bugs
                 IFS= read -r smells
                 IFS= read -r vulns
                 IFS= read -r hotspots
-            } < <(get_sonar_info "$project" "$slug" "$commit")
+                IFS= read -r sonar_building
+            } < <(get_sonar_info "$project" "$slug" "$commit" "$prev_sonar_url_for_lookup")
             qg_raw="${qg_line%%	*}"
             sonar_url="${qg_line#*	}"
             [[ "$sonar_url" =~ ^https?:// ]] || sonar_url=""
@@ -232,10 +279,11 @@ process_prs_to_json() {
                 --argjson smells "${smells:-0}" \
                 --argjson vulns "${vulns:-0}" \
                 --argjson hotspots "${hotspots:-0}" \
+                --argjson sonar_building "${sonar_building:-false}" \
                 --arg fetched_at "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
                 '{($id|tostring): {commit:$commit, build_state:$build_state, build_name:$build_name,
                   build_url:$build_url, qg_label:$qg_label, sonar_url:$sonar_url, bugs:$bugs, smells:$smells,
-                  vulns:$vulns, hotspots:$hotspots, fetched_at:$fetched_at}}' \
+                  vulns:$vulns, hotspots:$hotspots, sonar_building:$sonar_building, fetched_at:$fetched_at}}' \
                 >> "$cache_updates"
         fi
 
@@ -264,12 +312,14 @@ process_prs_to_json() {
             --argjson smells "${smells:-0}" \
             --argjson vulns "${vulns:-0}" \
             --argjson hotspots "${hotspots:-0}" \
+            --argjson sonar_building "${sonar_building:-false}" \
             '{id:$id, title:$title, repo:$repo, slug:$slug, project:$project,
               author:$author, branch:$branch, jira_key:$jira_key, commit:$commit,
               approvals:$approvals, needs_work:$needs_work, reviewer_count:$reviewer_count,
               tasks:$tasks, comments:$comments, merge_outcome:$merge_outcome,
               build_state:$build_state, build_name:$build_name, build_url:$build_url, qg_label:$qg_label,
-              sonar_url:$sonar_url, bugs:$bugs, smells:$smells, vulns:$vulns, hotspots:$hotspots}'
+              sonar_url:$sonar_url, bugs:$bugs, smells:$smells, vulns:$vulns, hotspots:$hotspots,
+              sonar_building:$sonar_building}'
     done
 }
 
@@ -286,15 +336,29 @@ WORK_END_HOUR=$(cfg work_end_hour);               WORK_END_HOUR=${WORK_END_HOUR:
 
 NEXT_POLL=$(date -u -v+${SLEEP}S +%Y-%m-%dT%H:%M:%SZ)
 
+# Fail this whole cycle fast if the VPN/network is down, instead of working
+# through ~20 endpoints one at a time until each one's own CURL_OPTS timeout
+# gives up. Existing data/*.json files are left untouched (last-known-good),
+# so the dashboard keeps showing stale-but-correct data rather than an error.
+if ! vpn_ok; then
+    log "⚠ $STASH_URL unreachable (VPN down?) — skipping this cycle, keeping last data"
+    if [ -n "$POLL_ONCE" ]; then
+        log "One-shot poll aborted: VPN unreachable."
+        exit 1
+    fi
+    sleep "$SLEEP"
+    continue
+fi
+
 # Load build/sonar cache (read once; available to process_prs_to_json subshells)
 CACHE=$(cat "$CACHE_FILE" 2>/dev/null | jq -c '.' 2>/dev/null || echo '{}')
 CACHE_UPDATES=$(mktemp)
 
 log "Fetching Bitbucket PRs..."
-MY_PRS_RAW=$(curl -s -H "Authorization: Bearer $PASSWORD" \
+MY_PRS_RAW=$(curl -s "${CURL_OPTS[@]}" -H "Authorization: Bearer $PASSWORD" \
     "$STASH_URL/rest/api/1.0/dashboard/pull-requests?state=OPEN&role=AUTHOR")
 
-REVIEWER_PRS_RAW=$(curl -s -H "Authorization: Bearer $PASSWORD" \
+REVIEWER_PRS_RAW=$(curl -s "${CURL_OPTS[@]}" -H "Authorization: Bearer $PASSWORD" \
     "$STASH_URL/rest/api/1.0/dashboard/pull-requests?state=OPEN&role=REVIEWER" \
     | jq -c --arg user "$BB_USERNAME" '
         .values |= (. // [] | map(select(
@@ -372,7 +436,7 @@ JQ_PROJ_TQA='[.issues[]? | {
     unassigned:     (.fields.assignee == null)
 }]'
 
-MINE_JSON=$(curl -s \
+MINE_JSON=$(curl -s "${CURL_OPTS[@]}" \
     "$JIRA_URL/rest/api/2/search" \
     -H "Authorization: Bearer $JIRA_PASSWORD" \
     --get \
@@ -381,7 +445,7 @@ MINE_JSON=$(curl -s \
     --data-urlencode "fields=summary,status,issuetype,priority,updated,labels,assignee,issuelinks,parent" \
     | jq "$JQ_PROJ" 2>/dev/null || echo "[]")
 
-IMPL_JSON=$(curl -s \
+IMPL_JSON=$(curl -s "${CURL_OPTS[@]}" \
     "$JIRA_URL/rest/api/2/search" \
     -H "Authorization: Bearer $JIRA_PASSWORD" \
     --get \
@@ -390,7 +454,7 @@ IMPL_JSON=$(curl -s \
     --data-urlencode "fields=summary,status,issuetype,priority,updated,labels,assignee,issuelinks,parent" \
     | jq "$JQ_PROJ" 2>/dev/null || echo "[]")
 
-TQA_JSON=$(curl -s \
+TQA_JSON=$(curl -s "${CURL_OPTS[@]}" \
     "$JIRA_URL/rest/api/2/search" \
     -H "Authorization: Bearer $JIRA_PASSWORD" \
     --get \
@@ -409,7 +473,7 @@ _JQ_NEXT='[.issues[]? | {
     teknisk_qa: ((.fields.labels // []) | any(. == "teknisk_QA"))
 }]'
 
-NEXT_CURRENT=$(curl -s \
+NEXT_CURRENT=$(curl -s "${CURL_OPTS[@]}" \
     "$JIRA_URL/rest/api/2/search" \
     -H "Authorization: Bearer $JIRA_PASSWORD" \
     --get \
@@ -418,7 +482,7 @@ NEXT_CURRENT=$(curl -s \
     --data-urlencode "fields=summary,status,issuetype,priority,updated,labels" \
     | jq "$_JQ_NEXT" 2>/dev/null || echo "[]")
 
-NEXT_FUTURE=$(curl -s \
+NEXT_FUTURE=$(curl -s "${CURL_OPTS[@]}" \
     "$JIRA_URL/rest/api/2/search" \
     -H "Authorization: Bearer $JIRA_PASSWORD" \
     --get \
@@ -449,6 +513,20 @@ ISSUES_JSON=$(echo "$ISSUES_JSON" | jq --argjson mine_keys "${MINE_KEYS:-[]}" '
   map(.blocked_by = ((.blocked_by // []) | map(. + {mine: (.key as $k | ($mine_keys | index($k)) != null)})))
 ')
 
+# Flag which of my issues actually sit in the current open sprint. Anything
+# assigned to me but outside the active sprint gets a NOT IN SPRINT warning.
+MINE_SPRINT_KEYS=$(curl -s "${CURL_OPTS[@]}" \
+    "$JIRA_URL/rest/api/2/search" \
+    -H "Authorization: Bearer $JIRA_PASSWORD" \
+    --get \
+    --data-urlencode "jql=project in ($JIRA_PROJECTS) AND assignee = currentUser() AND sprint in openSprints()" \
+    --data-urlencode "maxResults=200" \
+    --data-urlencode "fields=key" \
+    | jq '[.issues[]?.key]' 2>/dev/null || echo "[]")
+ISSUES_JSON=$(echo "$ISSUES_JSON" | jq --argjson sprint_keys "${MINE_SPRINT_KEYS:-[]}" '
+  map(.in_current_sprint = ((.key as $k | ($sprint_keys | index($k)) != null)))
+')
+
 IMPL_KEYS=$(echo "$IMPL_JSON" | jq '[.[].key]')
 
 TQA_JSON=$(echo "$TQA_JSON" | jq --argjson impl_keys "${IMPL_KEYS:-[]}" '
@@ -456,7 +534,7 @@ TQA_JSON=$(echo "$TQA_JSON" | jq --argjson impl_keys "${IMPL_KEYS:-[]}" '
 ')
 
 FIRST_PROJECT=$(echo "$JIRA_PROJECTS" | cut -d, -f1 | tr -d '"' | tr -d ' ')
-BOARD_IDS=$(curl -s \
+BOARD_IDS=$(curl -s "${CURL_OPTS[@]}" \
     "$JIRA_URL/rest/agile/1.0/board?projectKeyOrId=$FIRST_PROJECT&type=scrum&maxResults=50" \
     -H "Authorization: Bearer $JIRA_PASSWORD" \
     | jq -r '[.values[]?.id] | .[]')
@@ -464,7 +542,7 @@ BOARD_IDS=$(curl -s \
 SPRINT_JSON='null'
 ACTIVE_BOARD_ID=""
 for BOARD_ID in $BOARD_IDS; do
-    CANDIDATE=$(curl -s \
+    CANDIDATE=$(curl -s "${CURL_OPTS[@]}" \
         "$JIRA_URL/rest/agile/1.0/board/$BOARD_ID/sprint?state=active" \
         -H "Authorization: Bearer $JIRA_PASSWORD" \
         | jq '{name: (.values[0].name // ""), start_date: (.values[0].startDate // ""), end_date: (.values[0].endDate // "")}' \
@@ -492,6 +570,93 @@ jq -n \
     > "$JR_OUT.tmp" && mv "$JR_OUT.tmp" "$JR_OUT"
 
 log "Jira: $(echo "$MINE_JSON" | jq 'length') mine + $(echo "$IMPL_JSON" | jq 'length') implemented = $(echo "$ISSUES_JSON" | jq 'length') issues, $(echo "$TQA_JSON" | jq 'length') tekn_qa"
+
+# ── Master build monitoring (via Jenkins Prometheus metrics) ──────────────────
+# MASTER_BUILDS (secrets/config): one entry per line, "Label|<jenkins job path
+# after ILT/>". A single fetch of $JENKINS_URL/prometheus/ covers every
+# configured repo directly from Jenkins' own last-build state — no Bitbucket
+# build-status webhook dependency, no guessing at Bitbucket PROJECT/repoSlug.
+# Gated on $POLL_BUILD_STALE (config.yaml poll_build_stale_seconds): the scrape
+# is a few MB, so it isn't worth refetching every $SLEEP-second cycle.
+JK_STALE=true
+if [ -f "$JK_OUT" ]; then
+    jk_mtime=$(stat -f %m "$JK_OUT" 2>/dev/null || echo 0)
+    [ $(( $(date +%s) - jk_mtime )) -lt "$POLL_BUILD_STALE" ] && JK_STALE=false
+fi
+
+if [ -n "${MASTER_BUILDS//[[:space:]]/}" ] && $JK_STALE; then
+    JK_PREV=$(cat "$JK_OUT" 2>/dev/null || echo '{"pipelines":[]}')
+    PROM_RAW=$(curl -s --connect-timeout 5 --max-time 20 --compressed "$JENKINS_URL/prometheus/")
+
+    if [ -z "$PROM_RAW" ]; then
+        log "⚠ Jenkins prometheus unreachable — keeping last jenkins.json"
+    else
+        RESULT_LINES=$(echo "$PROM_RAW"   | grep '^default_jenkins_builds_last_build_result_ordinal{')
+        START_LINES=$(echo "$PROM_RAW"    | grep '^default_jenkins_builds_last_build_start_time_milliseconds{')
+        DUR_LINES=$(echo "$PROM_RAW"      | grep '^default_jenkins_builds_last_build_duration_milliseconds{')
+        RUNNING_LINES=$(echo "$PROM_RAW"  | grep '^default_jenkins_builds_running_build_duration_milliseconds{')
+
+        PIPES='[]'
+        while IFS= read -r line; do
+            line="${line#"${line%%[![:space:]]*}"}"; line="${line%"${line##*[![:space:]]}"}"
+            [ -z "$line" ] && continue
+            label="${line%%|*}"; path="${line#*|}"
+            label="${label#"${label%%[![:space:]]*}"}"; label="${label%"${label##*[![:space:]]}"}"
+            path="${path#"${path%%[![:space:]]*}"}"; path="${path%"${path##*[![:space:]]}"}"
+            needle="jenkins_job=\"ILT/$path\","
+
+            ordinal=$(echo "$RESULT_LINES"   | grep -F "$needle" | awk '{print $NF}')
+            start=$(echo "$START_LINES"      | grep -F "$needle" | awk '{print $NF}')
+            dur=$(echo "$DUR_LINES"          | grep -F "$needle" | awk '{print $NF}')
+            building=$(echo "$RUNNING_LINES" | grep -F "$needle")
+
+            # last_build_result_ordinal is Jenkins' own Result.ordinal:
+            # 0=SUCCESS 1=UNSTABLE 2=FAILURE 3=NOT_BUILT 4=ABORTED. Strip the
+            # ".0" Prometheus suffix before matching on the bare int.
+            ordinal_int="${ordinal%%.*}"
+            state="UNKNOWN"
+            case "$ordinal_int" in
+                0) state="SUCCESS" ;;
+                1) state="UNSTABLE" ;;
+                2) state="FAILURE" ;;
+                4) state="ABORTED" ;;
+            esac
+            # running_build_duration_milliseconds only exists while a build is
+            # actively in progress — last_build_result still reflects the
+            # *previous* completed build until then, so this takes priority.
+            [ -n "$building" ] && state="BUILDING"
+
+            build_url="$JENKINS_URL/job/ILT/job/$(echo "$path" | sed 's#/#/job/#g')/lastBuild/"
+
+            PIPES=$(echo "$PIPES" | jq \
+                --arg label "$label" --arg state "$state" --arg url "$build_url" \
+                --arg start "${start:-0}" --arg dur "${dur:-0}" \
+                '. + [{label:$label, url:$url, state:$state, commit:"", timestamp:($start|tonumber), duration:($dur|tonumber), build_url:$url}]')
+        done <<< "$MASTER_BUILDS"
+
+        jq -n --argjson pipelines "$PIPES" --arg updated "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
+            '{updated:$updated, pipelines:$pipelines}' > "$JK_OUT.tmp" && mv "$JK_OUT.tmp" "$JK_OUT"
+
+        # macOS desktop notification only on a NEW transition into a red state
+        echo "$PIPES" | jq -c '.[]' | while IFS= read -r p; do
+            st=$(echo "$p" | jq -r '.state'); lbl=$(echo "$p" | jq -r '.label')
+            if [ "$st" = "FAILURE" ]; then
+                prev=$(echo "$JK_PREV" | jq -r --arg l "$lbl" '.pipelines[]? | select(.label==$l) | .state' 2>/dev/null)
+                if [ "$prev" != "FAILURE" ]; then
+                    osascript -e "display notification \"$lbl master build is FAILED\" with title \"⚠ Master build failed\" sound name \"Basso\"" 2>/dev/null || true
+                fi
+            fi
+        done
+        log "Master builds: $(echo "$PIPES" | jq 'length') repos, $(echo "$PIPES" | jq '[.[]|select(.state=="FAILURE")]|length') red"
+    fi
+fi
+
+# POLL_ONCE=1 runs a single cycle and exits — used by the dashboard's manual
+# REFRESH button (via /api/poll) to force a fresh fetch on demand.
+if [ -n "$POLL_ONCE" ]; then
+    log "Done (one-shot). BB → $BB_OUT  |  Jira → $JR_OUT."
+    break
+fi
 
 log "Done. BB → $BB_OUT  |  Jira → $JR_OUT. Sleeping ${SLEEP}s (next_poll: $NEXT_POLL)."
 sleep "$SLEEP"

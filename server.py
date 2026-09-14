@@ -11,6 +11,7 @@ import json
 import os
 import pathlib
 import re
+import subprocess
 import sys
 import urllib.error
 import urllib.parse
@@ -38,7 +39,9 @@ DATA_DIR  = ROOT / ("data-test" if TEST_MODE else "data")
 ACTIVE    = DATA_DIR / ".active"
 TIMETRACK = DATA_DIR / "timetrack.json"
 WORKLOG_LEDGER = DATA_DIR / "jira-worklog.json"
+WORKHOURS = DATA_DIR / "work-hours.json"
 IDLE_KEY  = "__IDLE__"
+LEAVE_TYPES = ("vacation", "sick", "other")
 
 JIRA_KEY_RE = re.compile(r"^[A-Z][A-Z0-9]*-\d+$")
 _DATE_RE = re.compile(r"^\d{4}-\d{2}-\d{2}$")
@@ -124,6 +127,20 @@ def _write_timetrack(state: dict) -> None:
     tmp.rename(TIMETRACK)
 
 
+def _read_workhours() -> dict:
+    try:
+        return json.loads(WORKHOURS.read_text())
+    except Exception:
+        return {"updated": None, "current_year": None, "years": {}, "leave": []}
+
+
+def _write_workhours(state: dict) -> None:
+    state["updated"] = _now_iso()
+    tmp = WORKHOURS.with_suffix(".tmp")
+    tmp.write_text(json.dumps(state, ensure_ascii=False, indent=2))
+    tmp.rename(WORKHOURS)
+
+
 def _close_active(state: dict) -> None:
     """Close the running segment for the active tracker. Mutates state in-place."""
     active = state.get("active")
@@ -146,6 +163,37 @@ def _close_active(state: dict) -> None:
     )
     tracker["total_seconds"] = tracker.get("total_seconds", 0) + seconds
     state["active"] = None
+
+
+def _trim_idle_upto(state: dict, boundary: datetime.datetime) -> None:
+    """Truncate/remove Idle segments at or after `boundary`.
+
+    Used when a task's start time is set earlier than it was originally
+    recorded and now overlaps time already logged as Idle, so that span
+    isn't double-counted as both Idle and tracked work.
+    """
+    idle = state.get("trackers", {}).get(IDLE_KEY)
+    if not idle:
+        return
+    kept = []
+    for seg in idle.get("segments", []):
+        try:
+            seg_start = _parse_dt(seg["started_at"])
+            seg_end = _parse_dt(seg["ended_at"])
+        except Exception:
+            kept.append(seg)
+            continue
+        if seg_start >= boundary:
+            continue  # entirely reclaimed by the task
+        if seg_end > boundary:
+            seg["ended_at"] = boundary.isoformat(timespec="seconds")
+            seg["seconds"] = int((boundary - seg_start).total_seconds())
+        kept.append(seg)
+    if kept:
+        idle["segments"] = kept
+        _recompute_total(idle)
+    else:
+        del state["trackers"][IDLE_KEY]
 
 
 def _start_tracker(state: dict, key: str, summary: str) -> None:
@@ -209,6 +257,56 @@ def _http_err_msg(err: urllib.error.HTTPError) -> str:
     return f"HTTP {err.code}"
 
 
+def _text_field_by_name(fields: dict, names: dict, pattern: str) -> str:
+    """First non-empty text field whose *display name* matches pattern.
+
+    Custom-field ids differ per Jira instance, so these are looked up by the
+    human-readable name (which also lets EN/DA labels both match).
+    """
+    for fid, fname in names.items():
+        if re.search(pattern, fname or "", re.I):
+            val = fields.get(fid)
+            if isinstance(val, str) and val.strip():
+                return val.strip()
+    return ""
+
+
+def _issue_comments_text(fields: dict) -> str:
+    """Comments as 'Author (date): body' blocks, oldest first."""
+    blocks = []
+    for c in ((fields.get("comment") or {}).get("comments") or []):
+        body = (c.get("body") or "").strip()
+        if not body:
+            continue
+        who = ((c.get("author") or {}).get("displayName") or "?").strip()
+        when = (c.get("created") or "")[:10]
+        blocks.append(f"**{who}** ({when}):\n{body}")
+    return "\n\n".join(blocks)
+
+
+def _issue_prompt_text(key: str) -> str:
+    """Issue summary, bug-report fields, description and comments as plain text
+    ready to paste into a prompt. Bug fields are only emitted when present, so
+    stories come out the same as before."""
+    data = _jira_request("GET", f"/rest/api/2/issue/{key}", params={"expand": "names"})
+    fields = data.get("fields", {})
+    names = data.get("names", {})            # field id -> display name
+    summary = (fields.get("summary") or "").strip()
+    description = (fields.get("description") or "").strip()
+
+    sections = [
+        ("Acceptance Criteria", _text_field_by_name(fields, names, r"accept")),
+        ("Steps to Reproduce",  _text_field_by_name(fields, names, r"steps.*repro")),
+        ("Expected Results",    _text_field_by_name(fields, names, r"expected\s*result")),
+        ("Actual Results",      _text_field_by_name(fields, names, r"actual\s*result")),
+        ("Description",         description),
+        ("Comments",            _issue_comments_text(fields)),
+    ]
+    parts = [f"{key}: {summary}" if summary else key]
+    parts += [f"## {title}\n{body}" for title, body in sections if body]
+    return "\n\n".join(parts)
+
+
 def _my_jira_username() -> str:
     if "myself" not in _jira_cache:
         _jira_cache["myself"] = _jira_request("GET", "/rest/api/2/myself").get("name", "")
@@ -248,11 +346,14 @@ def _my_jira_worklog_days(key: str) -> dict:
 
 
 def _round_quarter(seconds: int) -> int:
-    """Round to nearest 15 min: down if minutes%15 < 3, else up. Returns seconds."""
+    """Round to the nearest 15 min: up if >=5 min past a quarter, else down.
+    Any block with tracked time bills at least 15 min. Returns seconds."""
     m = int(seconds) // 60
+    if m <= 0:
+        return 0
     r = m % 15
-    m = m - r if r < 3 else m + (15 - r)
-    return m * 60
+    m = m - r if r < 5 else m + (15 - r)
+    return max(15, m) * 60
 
 
 def _read_ledger() -> dict:
@@ -418,6 +519,41 @@ def _worklog_write(start: str, end: str) -> dict:
             "invalid_keys": status["invalid_keys"], "active": status["active"]}
 
 
+_SEV_RANK = {"BLOCKER": 0, "CRITICAL": 1, "HIGH": 1, "MAJOR": 2, "MEDIUM": 2,
+             "MINOR": 3, "LOW": 3, "INFO": 4}
+_TYPE_SHORT = {"BUG": "BUG", "VULNERABILITY": "VULN", "CODE_SMELL": "SMELL"}
+# Map Clean-Code (MQR) impact severities back to a classic label for display.
+_IMPACT_SEV = {"HIGH": "CRITICAL", "MEDIUM": "MAJOR", "LOW": "MINOR",
+               "BLOCKER": "BLOCKER", "INFO": "INFO"}
+
+
+def _sonar_get(url: str, headers: dict) -> dict:
+    with urllib.request.urlopen(urllib.request.Request(url, headers=headers), timeout=20) as resp:
+        return json.loads(resp.read())
+
+
+def _issue_severity(iss: dict) -> str:
+    """Severity label, tolerant of both classic and Clean-Code (impacts) modes."""
+    if iss.get("severity"):
+        return iss["severity"]
+    impacts = iss.get("impacts") or []
+    if impacts:
+        sev = (impacts[0].get("severity") or "").upper()
+        return _IMPACT_SEV.get(sev, sev or "?")
+    return "?"
+
+
+def _component_paths(data: dict, project_key: str) -> dict:
+    """Map component key -> shortest readable path."""
+    out = {}
+    for c in data.get("components", []):
+        path = c.get("path") or c.get("longName") or c.get("key", "")
+        if path.startswith(project_key + ":"):
+            path = path.split(":", 1)[1]
+        out[c.get("key", "")] = path
+    return out
+
+
 def _fetch_sonar_issues(pr_id: str) -> str:
     sonar_token = (ROOT / "secrets" / "sonar-token").read_text().strip()
     bb = json.loads((DATA_DIR / "bitbucket.json").read_text())
@@ -479,6 +615,73 @@ def _fetch_sonar_issues(pr_id: str) -> str:
         threshold = c.get("errorThreshold", "?")
         actual = c.get("actualValue", "?")
         lines.append(f"  {label}: {actual} (threshold: {cmp} {threshold})")
+    if not failing:
+        lines.append("  (none)")
+
+    # ── Actual issues on new code ────────────────────────────────────────
+    # The QG section above only gives counts; this lists each issue so it can
+    # be copied without opening SonarQube.
+    common = {"branch": branch} if branch else {}
+    try:
+        iss_params = {
+            "componentKeys": project_key,
+            "inNewCodePeriod": "true",
+            "statuses": "OPEN,CONFIRMED,REOPENED",
+            "resolved": "false",
+            "ps": "100",
+            **common,
+        }
+        iss_url = f"{sonar_base}/api/issues/search?" + urllib.parse.urlencode(iss_params)
+        iss_data = _sonar_get(iss_url, headers)
+        issues = iss_data.get("issues", [])
+        total = iss_data.get("total", len(issues))
+        paths = _component_paths(iss_data, project_key)
+        issues.sort(key=lambda i: (_SEV_RANK.get(_issue_severity(i).upper(), 9),
+                                   paths.get(i.get("component", ""), ""), i.get("line") or 0))
+        shown = f" (showing {len(issues)} of {total})" if total > len(issues) else ""
+        lines += ["", f"Issues on new code ({total}){shown}:"]
+        if not issues:
+            lines.append("  (none)")
+        for i in issues:
+            sev = _issue_severity(i)
+            typ = _TYPE_SHORT.get(i.get("type", ""), i.get("type", ""))
+            loc = paths.get(i.get("component", ""), i.get("component", ""))
+            if i.get("line"):
+                loc += f":{i['line']}"
+            msg = (i.get("message") or "").strip()
+            rule = i.get("rule", "")
+            lines.append(f"  [{sev}/{typ}] {loc}")
+            lines.append(f"      {msg}  ({rule})")
+    except Exception as e:
+        lines += ["", f"Issues on new code: (could not fetch — {e})"]
+
+    # ── Security hotspots to review ──────────────────────────────────────
+    try:
+        hs_params = {
+            "projectKey": project_key,
+            "status": "TO_REVIEW",
+            "inNewCodePeriod": "true",
+            "ps": "100",
+            **common,
+        }
+        hs_url = f"{sonar_base}/api/hotspots/search?" + urllib.parse.urlencode(hs_params)
+        hs_data = _sonar_get(hs_url, headers)
+        hotspots = hs_data.get("hotspots", [])
+        hpaths = _component_paths(hs_data, project_key)
+        if hotspots:
+            lines += ["", f"Security hotspots to review ({len(hotspots)}):"]
+            for h in hotspots:
+                prob = (h.get("vulnerabilityProbability") or "?").upper()
+                loc = hpaths.get(h.get("component", ""), h.get("component", ""))
+                if h.get("line"):
+                    loc += f":{h['line']}"
+                msg = (h.get("message") or "").strip()
+                rule = h.get("ruleKey", "")
+                cat = h.get("securityCategory", "")
+                lines.append(f"  [HOTSPOT/{prob}] {loc}")
+                lines.append(f"      {msg}  ({cat} · {rule})")
+    except Exception as e:
+        lines += ["", f"Security hotspots: (could not fetch — {e})"]
 
     lines += ["", f"View in SonarQube: {sonar_url}"]
     return "\n".join(lines)
@@ -560,6 +763,9 @@ class Handler(http.server.SimpleHTTPRequestHandler):
         if self.path.startswith("/api/worklog-status"):
             self._handle_worklog_status()
             return
+        if self.path.startswith("/api/issue-text"):
+            self._handle_issue_text()
+            return
         if self.path.startswith("/data/") and self.path.endswith(".json"):
             if TEST_MODE:
                 self._serve_test_data()
@@ -604,6 +810,26 @@ class Handler(http.server.SimpleHTTPRequestHandler):
         self.end_headers()
         self.wfile.write(body)
 
+    def _handle_issue_text(self):
+        qs = urllib.parse.parse_qs(urllib.parse.urlparse(self.path).query)
+        key = (qs.get("key") or [""])[0]
+        if not JIRA_KEY_RE.match(key or ""):
+            self._respond(400, "Invalid or missing key")
+            return
+        try:
+            body = _issue_prompt_text(key).encode()
+        except urllib.error.HTTPError as e:
+            self._respond(502, _http_err_msg(e))
+            return
+        except Exception as e:
+            self._respond(502, f"Jira error: {e}")
+            return
+        self.send_response(200)
+        self.send_header("Content-Type", "text/plain; charset=utf-8")
+        self.send_header("Content-Length", str(len(body)))
+        self.end_headers()
+        self.wfile.write(body)
+
     def _handle_sonar_issues(self):
         qs = urllib.parse.parse_qs(urllib.parse.urlparse(self.path).query)
         pr_id = (qs.get("pr_id") or [None])[0]
@@ -634,7 +860,51 @@ class Handler(http.server.SimpleHTTPRequestHandler):
         if self.path == "/api/worklog-write":
             self._handle_worklog_write()
             return
+        if self.path == "/api/leave":
+            self._handle_leave()
+            return
+        if self.path == "/api/poll":
+            self._handle_poll()
+            return
+        if self.path == "/api/poll-copilot":
+            self._handle_poll_copilot()
+            return
         self._respond(404, "Not found")
+
+    def _handle_poll(self):
+        """Run one poll.sh cycle on demand (manual REFRESH) and report the result."""
+        script = ROOT / "scripts" / "poll.sh"
+        try:
+            proc = subprocess.run(
+                ["bash", str(script)],
+                env={**os.environ, "POLL_ONCE": "1"},
+                capture_output=True, text=True, timeout=120)
+            ok = proc.returncode == 0
+            self._respond_json(200 if ok else 502, {
+                "ok": ok, "code": proc.returncode,
+                "log": (proc.stdout or "")[-2000:],
+                "err": (proc.stderr or "")[-1000:]})
+        except subprocess.TimeoutExpired:
+            self._respond_json(504, {"ok": False, "error": "poll timed out"})
+        except Exception as e:
+            self._respond_json(502, {"ok": False, "error": str(e)})
+
+    def _handle_poll_copilot(self):
+        """Run one poll-copilot.sh cycle on demand (manual REFRESH) and report the result."""
+        script = ROOT / "scripts" / "poll-copilot.sh"
+        try:
+            proc = subprocess.run(
+                ["bash", str(script)],
+                capture_output=True, text=True, timeout=60)
+            ok = proc.returncode == 0
+            self._respond_json(200 if ok else 502, {
+                "ok": ok, "code": proc.returncode,
+                "log": (proc.stdout or "")[-2000:],
+                "err": (proc.stderr or "")[-1000:]})
+        except subprocess.TimeoutExpired:
+            self._respond_json(504, {"ok": False, "error": "poll timed out"})
+        except Exception as e:
+            self._respond_json(502, {"ok": False, "error": str(e)})
 
     def _handle_worklog_status(self):
         qs = urllib.parse.parse_qs(urllib.parse.urlparse(self.path).query)
@@ -664,6 +934,64 @@ class Handler(http.server.SimpleHTTPRequestHandler):
             self._respond_json(200, _worklog_write(start, end))
         except Exception as e:
             self._respond(502, f"Jira error: {e}")
+
+    def _handle_leave(self):
+        """Add or delete leave records in work-hours.json.
+
+        Body: {"action": "add", "entries": [{date, type, hours, note?}, ...]}
+              {"action": "delete", "id": "<leave id>"}
+        Vacation is bonusable; sick/other leave is not (the browser applies
+        that rule when computing bonus). The server only persists records.
+        """
+        length = int(self.headers.get("Content-Length", 0))
+        raw = self.rfile.read(length) if length else b"{}"
+        try:
+            req = json.loads(raw)
+        except Exception:
+            self._respond(400, "Invalid JSON")
+            return
+
+        action = req.get("action", "")
+        state = _read_workhours()
+        leave = state.setdefault("leave", [])
+
+        if action == "add":
+            added = []
+            for e in req.get("entries", []) or []:
+                date = str(e.get("date", ""))
+                if not _DATE_RE.match(date):
+                    continue
+                typ = e.get("type", "vacation")
+                if typ not in LEAVE_TYPES:
+                    typ = "other"
+                try:
+                    hours = round(float(e.get("hours", 7.4)), 2)
+                except (TypeError, ValueError):
+                    continue
+                if hours < 0:
+                    continue
+                rec = {
+                    "id": _new_id(),
+                    "date": date,
+                    "type": typ,
+                    "hours": hours,
+                    "note": str(e.get("note", ""))[:200],
+                }
+                leave.append(rec)
+                added.append(rec)
+            leave.sort(key=lambda x: x["date"])
+            _write_workhours(state)
+            self._respond_json(200, {"added": added, "leave": leave})
+            return
+
+        if action == "delete":
+            lid = req.get("id", "")
+            state["leave"] = [x for x in leave if x.get("id") != lid]
+            _write_workhours(state)
+            self._respond_json(200, {"leave": state["leave"]})
+            return
+
+        self._respond(400, f"Unknown action: {action!r}")
 
     def _handle_track(self):
         length = int(self.headers.get("Content-Length", 0))
@@ -746,6 +1074,8 @@ class Handler(http.server.SimpleHTTPRequestHandler):
         if started > datetime.datetime.now().astimezone():
             return 400, "Start time is in the future"
         active["started_at"] = started.isoformat(timespec="seconds")
+        if active["key"] != IDLE_KEY:
+            _trim_idle_upto(state, started)
         return 200, None
 
     def _do_add_segment(self, state, req):
@@ -846,6 +1176,6 @@ if __name__ == "__main__":
     if TEST_MODE:
         print(f"TEST MODE — data from: {DATA_DIR}", flush=True)
     _migrate_timetrack()
-    with http.server.HTTPServer(("", PORT), Handler) as srv:
+    with http.server.ThreadingHTTPServer(("", PORT), Handler) as srv:
         print(f"dashboard server listening on :{PORT}", flush=True)
         srv.serve_forever()
