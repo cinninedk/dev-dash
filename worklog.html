@@ -1,0 +1,731 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Worklog — Jiraffe</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;600&family=Kalam:wght@300;400;700&family=Permanent+Marker&family=Share+Tech+Mono&family=VT323&display=swap" rel="stylesheet">
+  <style>
+    /* Themes — kept in sync with index.html. The active theme is shared via
+       localStorage('jiraffe-theme') and applied by the early <head> script. */
+    :root,
+    [data-theme="amber"] {
+      --bg:     #0a0700;
+      --panel:  #100c00;
+      --border: #8a5500;
+      --dim:    #e0aa38;
+      --text:   #f5aa30;
+      --bright: #ffd455;
+      --green:  #6ed464;
+      --red:    #f05858;
+      --yellow: #f8c838;
+      --blue:   #7eb8ff;
+      --sel-bg:          rgba(255,212,85,0.07);
+      --hover-bg:        rgba(212,135,10,0.04);
+      --row-border-soft: rgba(138,85,0,0.30);
+      --dim-faint:       rgba(138,85,0,0.50);
+      --overlay:         rgba(0,0,0,0.75);
+      --scanline:        rgba(0,0,0,0.07);
+      --scanline-step:   4px;
+      --font:            'Share Tech Mono', monospace;
+      --font-display:    'Share Tech Mono', monospace;
+      --case:            none;
+      --glow:            0 0 1px rgba(245,170,48,0.35);
+      --frame-w:         0px;
+      --frame-c:         transparent;
+    }
+
+    [data-theme="green"] {
+      --bg:     #000800;
+      --panel:  #001209;
+      --border: #1f7a3a;
+      --dim:    #3fd06a;
+      --text:   #46e878;
+      --bright: #9dffb0;
+      --green:  #6ed464;
+      --red:    #ff6b6b;
+      --yellow: #e8e060;
+      --blue:   #6bd0ff;
+      --sel-bg:          rgba(157,255,176,0.08);
+      --hover-bg:        rgba(40,200,90,0.05);
+      --row-border-soft: rgba(20,90,40,0.30);
+      --dim-faint:       rgba(63,208,106,0.40);
+      --overlay:         rgba(0,0,0,0.78);
+      --scanline:        rgba(0,0,0,0.14);
+      --scanline-step:   3px;
+      --font:            'VT323', monospace;
+      --font-display:    'VT323', monospace;
+      --case:            uppercase;
+      --glow:            0 0 3px rgba(70,232,120,0.5);
+    }
+
+    [data-theme="ice"] {
+      --bg:     #00060d;
+      --panel:  #031019;
+      --border: #1d6a8a;
+      --dim:    #52b8d8;
+      --text:   #7fd4ee;
+      --bright: #b8f0ff;
+      --green:  #6ed4a8;
+      --red:    #ff7a7a;
+      --yellow: #f0d060;
+      --blue:   #8ec5ff;
+      --sel-bg:          rgba(184,240,255,0.08);
+      --hover-bg:        rgba(40,150,200,0.05);
+      --row-border-soft: rgba(20,80,110,0.30);
+      --dim-faint:       rgba(82,184,216,0.40);
+      --overlay:         rgba(0,8,16,0.78);
+      --scanline:        rgba(0,0,0,0.05);
+      --scanline-step:   6px;
+      --font:            'IBM Plex Mono', monospace;
+      --font-display:    'IBM Plex Mono', monospace;
+      --case:            none;
+      --glow:            0 0 1px rgba(127,212,238,0.25);
+    }
+
+    [data-theme="paper"] {
+      --bg:     #f4efe3;
+      --panel:  #eae3d2;
+      --border: #b09a6a;
+      --dim:    #7a6a45;
+      --text:   #3a3325;
+      --bright: #1c1810;
+      --green:  #3a8a40;
+      --red:    #c83232;
+      --yellow: #b8881a;
+      --blue:   #2a6abf;
+      --sel-bg:          rgba(120,90,30,0.10);
+      --hover-bg:        rgba(120,90,30,0.06);
+      --row-border-soft: rgba(120,100,60,0.25);
+      --dim-faint:       rgba(122,106,69,0.50);
+      --overlay:         rgba(40,35,25,0.55);
+      --scanline:        rgba(0,0,0,0.015);
+      --scanline-step:   8px;
+      --font:            'IBM Plex Mono', monospace;
+      --font-display:    'IBM Plex Mono', monospace;
+      --case:            none;
+      --glow:            none;
+    }
+
+    [data-theme="c64"] {
+      --bg:     #40318d;
+      --panel:  #4a3ba2;
+      --border: #7869c4;
+      --dim:    #9b8fe0;
+      --text:   #c4bdf2;
+      --bright: #ffffff;
+      --green:  #94e089;
+      --red:    #e58178;
+      --yellow: #cfd06a;
+      --blue:   #9b8fff;
+      --sel-bg:          rgba(180,170,245,0.12);
+      --hover-bg:        rgba(150,135,230,0.14);
+      --row-border-soft: rgba(120,105,196,0.30);
+      --dim-faint:       rgba(155,143,224,0.45);
+      --overlay:         rgba(18,10,55,0.80);
+      --scanline:        rgba(0,0,0,0.10);
+      --scanline-step:   3px;
+      --font:            'VT323', monospace;
+      --font-display:    'VT323', monospace;
+      --case:            uppercase;
+      --glow:            0 0 2px rgba(155,143,255,0.55);
+      --frame-w:         9px;
+      --frame-c:         #7869c4;
+    }
+
+    [data-theme="board"] {
+      --bg:     #c2a173;
+      --panel:  #d9c39d;
+      --border: #7a5a36;
+      --dim:    #5c4a30;
+      --text:   #2c2418;
+      --bright: #14100a;
+      --green:  #2f7d33;
+      --red:    #bf3328;
+      --yellow: #a8780f;
+      --blue:   #2f5fa8;
+      --sel-bg:          rgba(168,120,15,0.16);
+      --hover-bg:        rgba(90,65,35,0.10);
+      --row-border-soft: rgba(90,65,35,0.22);
+      --dim-faint:       rgba(92,74,48,0.50);
+      --overlay:         rgba(40,30,18,0.55);
+      --scanline:        rgba(0,0,0,0);
+      --scanline-step:   8px;
+      --font:            'Kalam', cursive;
+      --font-display:    'Permanent Marker', cursive;
+      --case:            none;
+      --glow:            none;
+      --frame-w:         12px;
+      --frame-c:         #6e4a2a;
+    }
+
+    /* Corkboard texture, shared with the dashboard's board theme. */
+    [data-theme="board"] body {
+      background-color: #c2a173;
+      background-image:
+        radial-gradient(circle at 18% 28%, rgba(108,74,40,0.22) 0 1.5px, transparent 2px),
+        radial-gradient(circle at 63% 54%, rgba(92,60,28,0.18) 0 1.5px, transparent 2px),
+        radial-gradient(circle at 82% 20%, rgba(132,96,56,0.20) 0 1.5px, transparent 2px),
+        radial-gradient(circle at 40% 82%, rgba(88,56,26,0.20) 0 1.5px, transparent 2px),
+        radial-gradient(circle at 90% 75%, rgba(120,86,48,0.16) 0 1.5px, transparent 2px);
+      background-size: 23px 23px, 17px 17px, 29px 29px, 19px 19px, 13px 13px;
+    }
+
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+
+    body {
+      background: var(--bg);
+      color: var(--text);
+      font-family: var(--font);
+      text-shadow: var(--glow, none);
+      font-size: 20px;
+      padding: calc(20px + var(--frame-w, 0px));
+      line-height: 1.6;
+    }
+
+    /* CRT scanline + screen frame overlays — match the dashboard */
+    body::after {
+      content: "";
+      position: fixed;
+      inset: 0;
+      background: repeating-linear-gradient(
+        0deg,
+        transparent, transparent calc(var(--scanline-step, 4px) / 2),
+        var(--scanline) calc(var(--scanline-step, 4px) / 2), var(--scanline) var(--scanline-step, 4px)
+      );
+      pointer-events: none;
+      z-index: 9999;
+    }
+    body::before {
+      content: "";
+      position: fixed;
+      inset: 0;
+      border: var(--frame-w, 0px) solid var(--frame-c, transparent);
+      pointer-events: none;
+      z-index: 9998;
+    }
+
+    header { margin-bottom: 18px; display: flex; align-items: baseline; gap: 18px; flex-wrap: wrap; }
+    h1 { color: var(--bright); font-size: 28px; letter-spacing: 2px; font-family: var(--font-display); text-transform: var(--case, none); min-width: 320px; flex-shrink: 0; }
+    .nav-link { color: var(--dim); text-decoration: none; font-size: 17px; }
+    .nav-link:hover { color: var(--bright); }
+    .page-nav { display:flex; gap:4px; flex-wrap:wrap; align-items:center; flex-shrink:0; }
+    .page-nav a { color:var(--dim); text-decoration:none; font-size:16px; letter-spacing:1px; padding:4px 10px; border:1px solid transparent; }
+    .page-nav a:hover { color:var(--bright); border-color:var(--border); }
+    .page-nav a.active { color:var(--bright); border-color:var(--border); background:var(--sel-bg); }
+
+    select, input {
+      background: var(--panel);
+      color: var(--text);
+      border: 1px solid var(--border);
+      font-family: inherit;
+      font-size: 16px;
+      padding: 4px 8px;
+    }
+    select:focus, input:focus { outline: none; border-color: var(--bright); }
+    #year-select { font-size: 17px; }
+
+    .section { margin-bottom: 28px; }
+    .section-title {
+      color: var(--dim); font-size: 15px; letter-spacing: 2px;
+      text-transform: uppercase; margin-bottom: 10px;
+      border-bottom: 1px solid var(--row-border-soft); padding-bottom: 4px;
+    }
+
+    .cards { display: flex; flex-wrap: wrap; gap: 14px; }
+    .card {
+      background: var(--panel); border: 1px solid var(--border);
+      padding: 12px 16px; min-width: 180px; flex: 1 1 180px;
+    }
+    .card .label { color: var(--dim); font-size: 14px; letter-spacing: 1px; text-transform: uppercase; }
+    .card .value { color: var(--bright); font-size: 26px; font-family: var(--font-display); margin-top: 4px; }
+    .card .sub { color: var(--dim); font-size: 14px; margin-top: 4px; }
+    .card.hero { border-color: var(--dim); }
+    .pos { color: var(--green) !important; }
+    .neg { color: var(--red) !important; }
+    .muted { color: var(--dim-faint) !important; }
+
+    .warn-banner {
+      border: 1px solid var(--red);
+      background: rgba(240,88,88,0.08);
+      color: var(--text);
+      padding: 10px 14px;
+      margin-bottom: 22px;
+      font-size: 15px;
+      display: flex; align-items: center; gap: 10px; flex-wrap: wrap;
+    }
+    .warn-banner .warn-icon { color: var(--red); font-size: 20px; }
+    .warn-banner strong { color: var(--red); }
+    .warn-banner a { color: var(--bright); }
+
+    table.months { border-collapse: collapse; width: 100%; max-width: 760px; font-size: 17px; }
+    table.months th, table.months td { padding: 5px 10px; text-align: right; white-space: nowrap; }
+    table.months th {
+      color: var(--dim); font-size: 13px; letter-spacing: 1px; text-transform: uppercase;
+      border-bottom: 1px solid var(--border); text-align: right;
+    }
+    table.months th:first-child, table.months td:first-child { text-align: left; }
+    table.months td { border-bottom: 1px solid var(--row-border-soft); }
+    table.months tr.current td { background: var(--sel-bg); }
+    table.months tr.future td { color: var(--dim-faint); }
+    table.months tr.totals td { border-top: 2px solid var(--border); border-bottom: none; color: var(--bright); font-weight: 600; }
+    table.months tr.clickable { cursor: pointer; }
+    table.months tr.clickable:hover td { background: var(--hover-bg); }
+    .caret { display: inline-block; width: 1.1em; color: var(--dim); }
+    .tag { font-size: 12px; letter-spacing: 1px; color: var(--dim); }
+    .tag.sealed { color: var(--blue); }
+
+    table.months tr.detail td { padding: 0; background: var(--bg); border-bottom: 1px solid var(--border); }
+    .detail-box { padding: 8px 12px 12px 28px; }
+    .detail-box .muted { font-size: 15px; }
+    table.daybreak { border-collapse: collapse; width: 100%; max-width: 640px; font-size: 15px; }
+    table.daybreak th { color: var(--dim); font-size: 12px; letter-spacing: 1px; text-transform: uppercase; text-align: left; padding: 2px 12px; border-bottom: 1px solid var(--row-border-soft); }
+    table.daybreak td { padding: 3px 12px; border-bottom: 1px solid var(--row-border-soft); white-space: nowrap; }
+    table.daybreak td.r, table.daybreak th.r { text-align: right; }
+    table.daybreak td.brk { color: var(--dim); white-space: normal; }
+    table.daybreak td.brk div { line-height: 1.5; }
+
+    .lt-vacation { color: var(--green); }
+    .lt-sick { color: var(--red); }
+    .lt-other { color: var(--yellow); }
+    .note { color: var(--dim); font-size: 14px; margin-top: 6px; max-width: 760px; line-height: 1.4; }
+  </style>
+  <script>
+    // Honor the theme chosen on the dashboard (shared via localStorage).
+    (function () {
+      try {
+        var t = localStorage.getItem('jiraffe-theme');
+        if (t) document.documentElement.setAttribute('data-theme', t);
+      } catch (e) {}
+    })();
+  </script>
+</head>
+<body>
+
+<header>
+  <h1>💰 WORKLOG</h1>
+  <nav class="page-nav">
+    <a href="index.html">◆ DASHBOARD</a>
+    <a href="time.html">⏱ TIMESHEET</a>
+    <a href="worklog.html" class="active">💰 WORKLOG</a>
+    <a href="leave.html">🌴 FERIE</a>
+    <a href="jenkins.html">🔧 JENKINS</a>
+    <a href="copilot.html">🤖 COPILOT <span id="nav-copilot-total">–</span></a>
+  </nav>
+  <select id="year-select" onchange="changeYear(this.value)"></select>
+</header>
+
+<div id="content">Loading…</div>
+
+<script>
+const el = id => document.getElementById(id);
+const MONTHS = ['Januar','Februar','Marts','April','Maj','Juni','Juli',
+                'August','September','Oktober','November','December'];
+
+let WH = null;          // work-hours.json
+let TT = null;          // timetrack.json
+let selectedYear = null;
+let yearCfg = null;
+let holidaySet = new Set();      // selected year, for norm calc
+let worked = {};                 // 'YYYY-MM-DD' -> tracked hours (quarter-rounded)
+let workedDetail = {};           // 'YYYY-MM-DD' -> { trackerKey: rounded hours }
+let leaveByDate = {};            // 'YYYY-MM-DD' -> {vacation,sick,other}
+let expandedMonth = null;        // month (1-12) whose day breakdown is open
+
+const today = new Date();
+const todayMidnight = new Date(today.getFullYear(), today.getMonth(), today.getDate());
+const curY = today.getFullYear();
+const curM = today.getMonth() + 1;
+
+const pad = n => String(n).padStart(2, '0');
+const ymd = (y, m, d) => `${y}-${pad(m)}-${pad(d)}`;
+const kr = n => Math.round(n).toLocaleString('da-DK');
+const hrs = n => (Math.round(n * 100) / 100).toLocaleString('da-DK', {maximumFractionDigits: 2});
+
+function daysInMonth(y, m) { return new Date(y, m, 0).getDate(); }
+
+// Mirror of server _round_quarter: snap seconds to the nearest 15 min, rounding
+// up only when >=5 min past a quarter, else down; any block with tracked time
+// bills at least 15 min. Applied per (tracker, day) so the worklog totals match
+// what lands in Jira.
+function roundQuarter(seconds) {
+  let m = Math.floor(seconds / 60);
+  if (m <= 0) return 0;
+  const r = m % 15;
+  m = r < 5 ? m - r : m + (15 - r);
+  return Math.max(15, m) * 60;
+}
+
+function workdaysInMonth(y, m, holidays) {
+  let n = 0;
+  const dim = daysInMonth(y, m);
+  for (let d = 1; d <= dim; d++) {
+    const wd = new Date(y, m - 1, d).getDay();
+    if (wd === 0 || wd === 6) continue;
+    if (holidays.has(ymd(y, m, d))) continue;
+    n++;
+  }
+  return n;
+}
+
+function workdaysElapsed(y, m, holidays) {
+  let n = 0;
+  const dim = daysInMonth(y, m);
+  for (let d = 1; d <= dim; d++) {
+    const dt = new Date(y, m - 1, d);
+    if (dt > today) break;
+    const wd = dt.getDay();
+    if (wd === 0 || wd === 6) continue;
+    if (holidays.has(ymd(y, m, d))) continue;
+    n++;
+  }
+  return n;
+}
+
+// ── load + index data ────────────────────────────────────────────────
+async function load() {
+  [WH, TT] = await Promise.all([
+    fetch('data/work-hours.json', {cache: 'no-store'}).then(r => r.json()),
+    fetch('data/timetrack.json', {cache: 'no-store'}).then(r => r.json()).catch(() => ({trackers: {}})),
+  ]);
+
+  // tracked worked hours per day — all trackers incl. idle (idle is billable).
+  // Each (tracker, day) block is quarter-rounded before summing, so the day
+  // totals match what the Jira sync writes (which rounds per issue per day).
+  const perKeyDay = {};        // 'key|YYYY-MM-DD' -> raw seconds
+  for (const [key, tr] of Object.entries(TT.trackers || {})) {
+    for (const seg of tr.segments || []) {
+      const d = (seg.started_at || '').slice(0, 10);
+      if (d) { const k = key + '|' + d; perKeyDay[k] = (perKeyDay[k] || 0) + (seg.seconds || 0); }
+    }
+  }
+  // fold the currently running segment into its tracker's block so today's
+  // number is live and rounds together with that tracker's other segments
+  const act = TT.active;
+  if (act && act.started_at) {
+    const d = act.started_at.slice(0, 10);
+    const secs = (Date.now() - new Date(act.started_at)) / 1000;
+    if (secs > 0) { const k = (act.key || '__ACTIVE__') + '|' + d; perKeyDay[k] = (perKeyDay[k] || 0) + secs; }
+  }
+  worked = {};
+  workedDetail = {};
+  for (const [k, secs] of Object.entries(perKeyDay)) {
+    const d = k.slice(-10);
+    const key = k.slice(0, -11);            // strip the trailing '|YYYY-MM-DD'
+    const h = roundQuarter(secs) / 3600;
+    worked[d] = (worked[d] || 0) + h;
+    (workedDetail[d] || (workedDetail[d] = {}))[key] = h;
+  }
+
+  // year picker
+  const years = Object.keys(WH.years || {}).sort();
+  const sel = el('year-select');
+  sel.innerHTML = years.map(y => `<option value="${y}">${y}</option>`).join('');
+  selectedYear = String(WH.current_year && WH.years[WH.current_year] ? WH.current_year : years[years.length - 1]);
+  sel.value = selectedYear;
+
+  rebuildLeave();
+  applyYear();
+}
+
+function rebuildLeave() {
+  leaveByDate = {};
+  for (const lv of WH.leave || []) {
+    const m = leaveByDate[lv.date] || (leaveByDate[lv.date] = {vacation: 0, sick: 0, other: 0});
+    m[lv.type] = (m[lv.type] || 0) + lv.hours;
+  }
+}
+
+function applyYear() {
+  yearCfg = WH.years[selectedYear];
+  holidaySet = new Set(yearCfg ? yearCfg.holidays || [] : []);
+  render();
+}
+
+function changeYear(y) { selectedYear = String(y); applyYear(); }
+
+// ── bonus engine ─────────────────────────────────────────────────────
+function isSealed(m) {
+  const sm = yearCfg.seed_months || {};
+  if (!(String(m) in sm)) return false;
+  const ts = yearCfg.tracker_start;
+  if (!ts) return true;
+  return m < parseInt(ts.slice(5, 7), 10);
+}
+
+function phase(m) {
+  const Y = parseInt(selectedYear, 10);
+  if (Y < curY || (Y === curY && m < curM)) return 'past';
+  if (Y === curY && m === curM) return 'current';
+  return 'future';
+}
+
+// Worked + vacation hours counted only through today — pre-logged vacation for
+// later in the month must not inflate "how am I doing right now" numbers.
+// (Only vacation counts as faktureret per monthStats; sick/other never counts.)
+function faktureretToDate(Y, m) {
+  let total = 0;
+  const dim = daysInMonth(Y, m);
+  for (let d = 1; d <= dim; d++) {
+    const dt = new Date(Y, m - 1, d);
+    if (dt > today) break;
+    const ds = ymd(Y, m, d);
+    total += worked[ds] || 0;
+    const lv = leaveByDate[ds];
+    if (lv) total += lv.vacation;
+  }
+  return total;
+}
+
+// Ahead/behind hours for the running month, as of the start of today — a
+// partially-worked today is excluded on both sides (norm and faktureret) so
+// the number can't swing around while the day is still in progress.
+function normBalanceToDate(Y, m, holidays, dn) {
+  let normDone = 0, faktureret = 0;
+  const dim = daysInMonth(Y, m);
+  for (let d = 1; d <= dim; d++) {
+    const dt = new Date(Y, m - 1, d);
+    if (dt >= todayMidnight) break;
+    const ds = ymd(Y, m, d);
+    const wd = dt.getDay();
+    if (wd !== 0 && wd !== 6 && !holidays.has(ds)) normDone += dn;
+    faktureret += worked[ds] || 0;
+    const lv = leaveByDate[ds];
+    if (lv) faktureret += lv.vacation;
+  }
+  return faktureret - normDone;
+}
+
+function monthStats(m) {
+  const c = yearCfg.constants;
+  const Y = parseInt(selectedYear, 10);
+  const norm = workdaysInMonth(Y, m, holidaySet) * c.dagsnormtimer;
+  const threshold = c.bonustimegraense;
+  const sealed = isSealed(m);
+  const ph = phase(m);
+
+  let workedH = 0, vac = 0, sick = 0, other = 0;
+  const dim = daysInMonth(Y, m);
+  for (let d = 1; d <= dim; d++) {
+    const ds = ymd(Y, m, d);
+    workedH += worked[ds] || 0;
+    const lv = leaveByDate[ds];
+    if (lv) { vac += lv.vacation; sick += lv.sick; other += lv.other; }
+  }
+
+  // faktureret = worked + vacation (sick/other excluded); sealed months use the frozen total.
+  // For the running month, only count days that have actually happened — vacation
+  // pre-logged for later this month doesn't count until that day arrives.
+  const faktureret = sealed ? (yearCfg.seed_months[m] ?? 0)
+    : ph === 'current' ? faktureretToDate(Y, m)
+    : workedH + vac;
+  const estBonus = (norm - threshold) * c.bonustimeloen;        // fully-worked month
+  const realHours = Math.max(0, faktureret - threshold);
+  const realBonus = realHours * c.bonustimeloen;
+
+  return {m, norm, threshold, sealed, workedH, vac, sick, other,
+          faktureret, estBonus, realHours, realBonus, phase: ph};
+}
+
+// Detect a still-running idle segment that was likely left on overnight.
+// Returns the warning data, or null. Idle counts as billable, so a forgotten
+// idle session silently inflates today's hours until it's stopped.
+const IDLE_WARN_HOURS = 10;
+function idleWarning() {
+  const act = TT.active;
+  if (!act || act.key !== '__IDLE__' || !act.started_at) return null;
+  const start = new Date(act.started_at);
+  const elapsedH = (Date.now() - start) / 3.6e6;
+  const startDay = act.started_at.slice(0, 10);
+  const now = new Date();
+  const overnight = startDay < ymd(now.getFullYear(), now.getMonth() + 1, now.getDate());
+  if (!overnight && elapsedH < IDLE_WARN_HOURS) return null;
+  const H = Math.floor(elapsedH), M = Math.round((elapsedH - H) * 60);
+  return {overnight, startDay, since: start.toLocaleString('da-DK', {hour: '2-digit', minute: '2-digit', day: '2-digit', month: '2-digit'}), dur: `${H} t ${M} m`};
+}
+
+// ── render ───────────────────────────────────────────────────────────
+function render() {
+  if (!yearCfg) { el('content').innerHTML = `<p class="muted">Ingen data for ${selectedYear}.</p>`; return; }
+  const c = yearCfg.constants;
+  const Y = parseInt(selectedYear, 10);
+  const stats = [];
+  for (let m = 1; m <= 12; m++) stats.push(monthStats(m));
+
+  // year roll-ups
+  let ytdReal = 0, projected = 0;
+  for (const s of stats) {
+    if (s.phase === 'past') { ytdReal += s.realBonus; projected += s.realBonus; }
+    else if (s.phase === 'current') { ytdReal += s.realBonus; projected += s.estBonus; }
+    else projected += s.estBonus;                 // future at norm
+  }
+  const base = c.basis * 12;
+
+  let html = '';
+
+  // warn if idle was left running overnight — it inflates today's billable hours
+  const iw = idleWarning();
+  if (iw) {
+    html += `<div class="warn-banner"><span class="warn-icon">⚠</span>
+      <span><strong>Idle har kørt siden ${iw.since}</strong> (${iw.dur})${iw.overnight ? ' — natten over' : ''}.
+      Tiden tælles med i dag. Stop eller ret den i <a href="time.html">Timesheet</a> hvis den blev glemt.</span></div>`;
+  }
+
+  // hero — current month (only when viewing the running year)
+  const cur = stats.find(s => s.phase === 'current');
+  if (cur) {
+    // cur.faktureret is already to-date only (see monthStats) — pre-logged vacation
+    // later this month doesn't get to count until that day actually arrives.
+    const overUnder = cur.faktureret - cur.threshold;
+    const gapKnown = overUnder > 0;
+    const gap = cur.realBonus - cur.estBonus;
+    // ahead/behind norm for THIS month only — resets every month, so it lives
+    // here rather than in the year summary. Today itself is excluded on both
+    // sides (see normBalanceToDate) so a partial today can't swing it either way.
+    const monthBal = normBalanceToDate(Y, cur.m, holidaySet, c.dagsnormtimer);
+    html += `<div class="section"><div class="section-title">Denne måned — ${MONTHS[cur.m - 1]} ${Y}</div><div class="cards">`;
+    html += card('hero', 'Faktureret timer', `${hrs(cur.faktureret)}<span style="font-size:15px;color:var(--dim)"> / ${cur.threshold} t</span>`,
+      overUnder >= 0 ? `<span class="pos">+${hrs(overUnder)} bonustimer</span>` : `mangler ${hrs(-overUnder)} t til bonus`);
+    html += card('hero', 'Bonus nu', kr(cur.realBonus) + ' kr', `est. fuld måned ${kr(cur.estBonus)} kr`);
+    html += card('hero', 'Ift. fuld måned', gapKnown
+      ? `<span class="${gap >= 0 ? 'pos' : 'neg'}">${gap >= 0 ? '+' : ''}${kr(gap)} kr</span>`
+      : `<span class="muted">0 kr</span>`,
+      gapKnown ? `arbejdet ${hrs(cur.workedH)} t · ferie ${hrs(cur.vac)} t` : `under ${cur.threshold} t bonusgrænse endnu`);
+    html += card('hero', 'Timer ift. norm', `<span class="${monthBal >= 0 ? 'pos' : 'neg'}">${monthBal >= 0 ? '+' : ''}${hrs(monthBal)} t</span>`,
+      monthBal >= 0 ? 'foran' : 'bagud');
+    html += `</div></div>`;
+  }
+
+  // month table
+  html += `<div class="section"><div class="section-title">Måned for måned</div>`;
+  html += `<table class="months"><thead><tr>
+    <th>Måned</th><th>Norm</th><th>Tilbage</th><th>Faktureret</th><th>Est. bonus</th><th>Realiseret</th><th>Δ</th></tr></thead><tbody>`;
+  let tNorm = 0, tLeft = 0, tBon = 0, tEst = 0, tReal = 0;
+  for (const s of stats) {
+    const showReal = s.phase !== 'future';
+    const delta = s.realBonus - s.estBonus;
+    // norm hours still to come this month: 0 once it's over, the full norm for
+    // future months, and for the running month the remainder of the norm —
+    // counting today by hours actually worked rather than as a full norm day,
+    // so Tilbage shrinks live as you log time today.
+    let normLeft;
+    if (s.phase === 'past') normLeft = 0;
+    else if (s.phase === 'future') normLeft = s.norm;
+    else {
+      const dn = c.dagsnormtimer;
+      const tds = ymd(Y, s.m, today.getDate());
+      const twd = today.getDay();
+      const todayCounts = twd !== 0 && twd !== 6 && !holidaySet.has(tds);
+      // workdaysElapsed already books today as a full norm day; swap that for
+      // the hours genuinely worked today
+      let elapsedNorm = workdaysElapsed(Y, s.m, holidaySet) * dn;
+      if (todayCounts) elapsedNorm += (worked[tds] || 0) - dn;
+      normLeft = Math.max(0, s.norm - elapsedNorm);
+    }
+    tNorm += s.norm; tLeft += normLeft; tEst += s.estBonus;
+    if (s.phase !== 'future') { tBon += s.faktureret; tReal += s.realBonus; }
+    const tag = s.sealed ? '<span class="tag sealed">seed</span>'
+              : s.phase === 'future' ? '<span class="tag">norm</span>' : '';
+    const open = expandedMonth === s.m;
+    html += `<tr class="${s.phase} clickable" onclick="toggleMonth(${s.m})">
+      <td><span class="caret">${open ? '▾' : '▸'}</span>${MONTHS[s.m - 1]} ${tag}</td>
+      <td>${hrs(s.norm)}</td>
+      <td class="${normLeft > 0 ? '' : 'muted'}">${normLeft > 0 ? hrs(normLeft) : '–'}</td>
+      <td>${showReal ? hrs(s.faktureret) : '–'}</td>
+      <td>${kr(s.estBonus)}</td>
+      <td>${showReal ? kr(s.realBonus) : '–'}</td>
+      <td class="${!showReal ? '' : delta >= 0 ? 'pos' : 'neg'}">${showReal ? (delta >= 0 ? '+' : '') + kr(delta) : '–'}</td>
+    </tr>`;
+    if (open) html += monthDetailRow(s, 7);
+  }
+  html += `<tr class="totals">
+    <td>I alt</td><td>${hrs(tNorm)}</td><td>${hrs(tLeft)}</td><td>${hrs(tBon)}</td>
+    <td>${kr(tEst)}</td><td>${kr(tReal)}</td><td>${(tReal - tEst) >= 0 ? '+' : ''}${kr(tReal - tEst)}</td></tr>`;
+  html += `</tbody></table>`;
+  html += `<div class="note">「seed」 = importeret fra regnearket (før tidsregistrering tog over).
+    「norm」 = fremtidig måned beregnet som fuldt arbejdet. Faktureret = registreret arbejdstid + ferie;
+    sygdom og andet fravær tæller ikke med i bonus. Bonustimegrænse ${c.bonustimegraense} t/md, bonustimeløn ${hrs(c.bonustimeloen)} kr.</div>`;
+  html += `</div>`;
+
+  // year summary
+  html += `<div class="section"><div class="section-title">${Y} samlet</div><div class="cards">`;
+  html += card('', 'Bonus realiseret', kr(ytdReal) + ' kr', 'til og med nu');
+  html += card('', 'Bonus prognose', kr(projected) + ' kr', 'norm resten af året');
+  html += card('', 'Løn i alt (prognose)', kr(base + projected) + ' kr', `${kr(base)} basis + bonus`);
+  html += `</div></div>`;
+
+  el('content').innerHTML = html;
+}
+
+function card(cls, label, value, sub) {
+  return `<div class="card ${cls}"><div class="label">${label}</div>
+    <div class="value">${value}</div><div class="sub">${sub || ''}</div></div>`;
+}
+
+function toggleMonth(m) { expandedMonth = expandedMonth === m ? null : m; render(); }
+
+const DOW = ['Søn', 'Man', 'Tir', 'Ons', 'Tor', 'Fre', 'Lør'];
+const keyLabel = k => k === '__IDLE__' ? 'idle' : k;
+
+// Per-day breakdown shown when a month row is expanded. Sealed/seed and future
+// months carry no tracked segments, so they just say so.
+function monthDetailRow(s, colspan) {
+  const Y = parseInt(selectedYear, 10);
+  const dn = yearCfg.constants.dagsnormtimer;
+  let inner;
+  if (s.sealed) {
+    inner = `<div class="muted">Importeret fra regnearket — ingen dagsopdeling.</div>`;
+  } else if (s.phase === 'future') {
+    inner = `<div class="muted">Fremtidig måned — endnu ikke registreret.</div>`;
+  } else {
+    const dim = daysInMonth(Y, s.m);
+    let rows = '';
+    let running = 0;                           // cumulative Δ norm, month-to-date
+    for (let d = 1; d <= dim; d++) {
+      const ds = ymd(Y, s.m, d);
+      const h = worked[ds] || 0;
+      const lv = leaveByDate[ds];
+      if (!h && !lv) continue;                 // only days with hours or leave
+      const wd = new Date(Y, s.m - 1, d).getDay();
+      const brkLines = Object.entries(workedDetail[ds] || {})
+        .sort((a, b) => b[1] - a[1])
+        .map(([k, hh]) => `<div>${keyLabel(k)} ${hrs(hh)}</div>`);
+      if (lv) {
+        if (lv.vacation) brkLines.push(`<div class="lt-vacation">ferie ${hrs(lv.vacation)}</div>`);
+        if (lv.sick) brkLines.push(`<div class="lt-sick">syg ${hrs(lv.sick)}</div>`);
+        if (lv.other) brkLines.push(`<div class="lt-other">andet ${hrs(lv.other)}</div>`);
+      }
+      const diff = h - (lv ? 0 : dn);          // vs day norm, for worked days
+      running += diff;
+      rows += `<tr>
+        <td>${pad(d)}. ${DOW[wd]}</td>
+        <td class="r">${h ? hrs(h) + ' t' : '–'}</td>
+        <td class="r ${h >= dn ? 'pos' : h ? 'neg' : ''}">${h ? (diff >= 0 ? '+' : '') + hrs(diff) : ''}</td>
+        <td class="r ${running >= 0 ? 'pos' : 'neg'}">${(running >= 0 ? '+' : '') + hrs(running)}</td>
+        <td class="brk">${brkLines.join('')}</td>
+      </tr>`;
+    }
+    inner = rows
+      ? `<table class="daybreak"><thead><tr><th>Dag</th><th class="r">Timer</th><th class="r">Δ norm</th><th class="r">Saldo</th><th>Fordeling</th></tr></thead><tbody>${rows}</tbody></table>`
+      : `<div class="muted">Ingen registreret tid i ${MONTHS[s.m - 1]}.</div>`;
+  }
+  return `<tr class="detail"><td colspan="${colspan}"><div class="detail-box">${inner}</div></td></tr>`;
+}
+
+load().catch(e => { el('content').innerHTML = `<p class="neg">Kunne ikke indlæse: ${e.message}</p>`; });
+</script>
+<script>
+  (function () {
+    function loadCopilotNav() {
+      fetch('data/copilot.json', {cache:'no-store'}).then(r => r.json()).then(d => {
+        const el = document.getElementById('nav-copilot-total');
+        if (el) el.textContent = (d.my_month_total ?? 0).toLocaleString();
+      }).catch(() => {});
+    }
+    loadCopilotNav();
+    setInterval(loadCopilotNav, 5 * 60 * 1000);
+  })();
+</script>
+</body>
+</html>
