@@ -7,5 +7,6 @@ AGENTS=~/Library/LaunchAgents
 
 launchctl unload "$AGENTS/${LAUNCHD_PREFIX}-server.plist"
 launchctl unload "$AGENTS/${LAUNCHD_PREFIX}-poll.plist"
+launchctl unload "$AGENTS/${LAUNCHD_PREFIX}-copilot.plist"
 
 echo "Dashboard services stopped."

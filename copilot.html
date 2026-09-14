@@ -1,0 +1,247 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Copilot — Jiraffe</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;600&family=Kalam:wght@300;400;700&family=Permanent+Marker&family=Share+Tech+Mono&family=VT323&display=swap" rel="stylesheet">
+  <style>
+    /* Themes — kept in sync with index.html / worklog.html. The active theme is
+       shared via localStorage('jiraffe-theme') and applied by the early script. */
+    :root,
+    [data-theme="amber"] {
+      --bg:#0a0700; --panel:#100c00; --border:#8a5500; --dim:#e0aa38; --text:#f5aa30; --bright:#ffd455;
+      --green:#6ed464; --red:#f05858; --yellow:#f8c838; --blue:#7eb8ff;
+      --sel-bg:rgba(255,212,85,0.07); --hover-bg:rgba(212,135,10,0.04);
+      --row-border-soft:rgba(138,85,0,0.30); --dim-faint:rgba(138,85,0,0.50); --overlay:rgba(0,0,0,0.75);
+      --scanline:rgba(0,0,0,0.07); --scanline-step:4px;
+      --font:'Share Tech Mono',monospace; --font-display:'Share Tech Mono',monospace; --case:none;
+      --glow:0 0 1px rgba(245,170,48,0.35); --frame-w:0px; --frame-c:transparent;
+    }
+    [data-theme="green"] {
+      --bg:#000800; --panel:#001209; --border:#1f7a3a; --dim:#3fd06a; --text:#46e878; --bright:#9dffb0;
+      --green:#6ed464; --red:#ff6b6b; --yellow:#e8e060; --blue:#6bd0ff;
+      --sel-bg:rgba(157,255,176,0.08); --hover-bg:rgba(40,200,90,0.05);
+      --row-border-soft:rgba(20,90,40,0.30); --dim-faint:rgba(63,208,106,0.40); --overlay:rgba(0,0,0,0.78);
+      --scanline:rgba(0,0,0,0.14); --scanline-step:3px;
+      --font:'VT323',monospace; --font-display:'VT323',monospace; --case:uppercase;
+      --glow:0 0 3px rgba(70,232,120,0.5);
+    }
+    [data-theme="ice"] {
+      --bg:#00060d; --panel:#031019; --border:#1d6a8a; --dim:#52b8d8; --text:#7fd4ee; --bright:#b8f0ff;
+      --green:#6ed4a8; --red:#ff7a7a; --yellow:#f0d060; --blue:#8ec5ff;
+      --sel-bg:rgba(184,240,255,0.08); --hover-bg:rgba(40,150,200,0.05);
+      --row-border-soft:rgba(20,80,110,0.30); --dim-faint:rgba(82,184,216,0.40); --overlay:rgba(0,8,16,0.78);
+      --scanline:rgba(0,0,0,0.05); --scanline-step:6px;
+      --font:'IBM Plex Mono',monospace; --font-display:'IBM Plex Mono',monospace; --case:none;
+      --glow:0 0 1px rgba(127,212,238,0.25);
+    }
+    [data-theme="paper"] {
+      --bg:#f4efe3; --panel:#eae3d2; --border:#b09a6a; --dim:#7a6a45; --text:#3a3325; --bright:#1c1810;
+      --green:#3a8a40; --red:#c83232; --yellow:#b8881a; --blue:#2a6abf;
+      --sel-bg:rgba(120,90,30,0.10); --hover-bg:rgba(120,90,30,0.06);
+      --row-border-soft:rgba(120,100,60,0.25); --dim-faint:rgba(122,106,69,0.50); --overlay:rgba(40,35,25,0.55);
+      --scanline:rgba(0,0,0,0.015); --scanline-step:8px;
+      --font:'IBM Plex Mono',monospace; --font-display:'IBM Plex Mono',monospace; --case:none; --glow:none;
+    }
+    [data-theme="c64"] {
+      --bg:#40318d; --panel:#4a3ba2; --border:#7869c4; --dim:#9b8fe0; --text:#c4bdf2; --bright:#ffffff;
+      --green:#94e089; --red:#e58178; --yellow:#cfd06a; --blue:#9b8fff;
+      --sel-bg:rgba(180,170,245,0.12); --hover-bg:rgba(150,135,230,0.14);
+      --row-border-soft:rgba(120,105,196,0.30); --dim-faint:rgba(155,143,224,0.45); --overlay:rgba(18,10,55,0.80);
+      --scanline:rgba(0,0,0,0.10); --scanline-step:3px;
+      --font:'VT323',monospace; --font-display:'VT323',monospace; --case:uppercase;
+      --glow:0 0 2px rgba(155,143,255,0.55); --frame-w:9px; --frame-c:#7869c4;
+    }
+    [data-theme="board"] {
+      --bg:#c2a173; --panel:#d9c39d; --border:#7a5a36; --dim:#5c4a30; --text:#2c2418; --bright:#14100a;
+      --green:#2f7d33; --red:#bf3328; --yellow:#a8780f; --blue:#2f5fa8;
+      --sel-bg:rgba(168,120,15,0.16); --hover-bg:rgba(90,65,35,0.10);
+      --row-border-soft:rgba(90,65,35,0.22); --dim-faint:rgba(92,74,48,0.50); --overlay:rgba(40,30,18,0.55);
+      --scanline:rgba(0,0,0,0); --scanline-step:8px;
+      --font:'Kalam',cursive; --font-display:'Permanent Marker',cursive; --case:none; --glow:none;
+      --frame-w:12px; --frame-c:#6e4a2a;
+    }
+    [data-theme="board"] body {
+      background-color:#c2a173;
+      background-image:
+        radial-gradient(circle at 18% 28%, rgba(108,74,40,0.22) 0 1.5px, transparent 2px),
+        radial-gradient(circle at 63% 54%, rgba(92,60,28,0.18) 0 1.5px, transparent 2px),
+        radial-gradient(circle at 82% 20%, rgba(132,96,56,0.20) 0 1.5px, transparent 2px),
+        radial-gradient(circle at 40% 82%, rgba(88,56,26,0.20) 0 1.5px, transparent 2px),
+        radial-gradient(circle at 90% 75%, rgba(120,86,48,0.16) 0 1.5px, transparent 2px);
+      background-size:23px 23px,17px 17px,29px 29px,19px 19px,13px 13px;
+    }
+
+    * { box-sizing:border-box; margin:0; padding:0; }
+    body {
+      background:var(--bg); color:var(--text); font-family:var(--font); text-shadow:var(--glow,none);
+      font-size:18px; padding:calc(20px + var(--frame-w, 0px)); line-height:1.6;
+    }
+    body::after {
+      content:""; position:fixed; inset:0; pointer-events:none; z-index:9999;
+      background:repeating-linear-gradient(0deg,
+        transparent, transparent calc(var(--scanline-step,4px)/2),
+        var(--scanline) calc(var(--scanline-step,4px)/2), var(--scanline) var(--scanline-step,4px));
+    }
+    body::before {
+      content:""; position:fixed; inset:0; pointer-events:none; z-index:9998;
+      border:var(--frame-w,0px) solid var(--frame-c,transparent);
+    }
+
+    header { margin-bottom:18px; display:flex; align-items:baseline; gap:18px; flex-wrap:wrap; }
+    h1 { color:var(--bright); font-size:28px; letter-spacing:2px; font-family:var(--font-display); text-transform:var(--case,none); min-width:320px; flex-shrink:0; }
+    .nav-link { color:var(--dim); text-decoration:none; font-size:16px; }
+    .nav-link:hover { color:var(--bright); }
+    #updated { color:var(--dim-faint); font-size:14px; }
+
+    /* shared cross-page navbar */
+    .page-nav { display:flex; gap:4px; flex-wrap:wrap; align-items:center; flex-shrink:0; }
+    .page-nav a { color:var(--dim); text-decoration:none; font-size:15px; letter-spacing:1px; padding:4px 10px; border:1px solid transparent; }
+    .page-nav a:hover { color:var(--bright); border-color:var(--border); }
+    .page-nav a.active { color:var(--bright); border-color:var(--border); background:var(--sel-bg); }
+
+    #refresh-btn {
+      background:none; border:1px solid var(--border); color:var(--text); font-family:inherit;
+      font-size:17px; padding:3px 10px; cursor:pointer; flex-shrink:0; letter-spacing:1px;
+    }
+    #refresh-btn:hover { border-color:var(--bright); color:var(--bright); }
+    #refresh-btn:disabled { opacity:0.5; cursor:default; }
+
+    #summary { color:var(--dim); font-size:15px; margin-bottom:16px; }
+    #summary strong { color:var(--text); }
+
+    .rows { border:1px solid var(--border); max-width:900px; overflow-x:auto; }
+    table { border-collapse:collapse; width:100%; font-size:16px; white-space:nowrap; }
+    th, td { padding:7px 12px; text-align:right; border-bottom:1px solid var(--row-border-soft); }
+    th:first-child, td:first-child { text-align:left; }
+    thead th { color:var(--dim); font-size:14px; letter-spacing:0.5px; border-bottom:1px solid var(--border); }
+    tbody tr:last-child td { border-bottom:none; }
+    tbody tr:hover td { background:var(--hover-bg); }
+    td.user, th:first-child { color:var(--text); }
+    td.total { color:var(--bright); font-weight:600; }
+    td.zero { color:var(--dim-faint); }
+    td.empty-cell { color:var(--dim-faint); }
+
+    tr.row-all td { color:var(--dim); font-style:italic; border-bottom:1px solid var(--border); }
+    tr.row-all td.total { color:var(--dim); }
+
+    tr.row-me td { background:var(--sel-bg); }
+    tr.row-me td.user { color:var(--bright); font-weight:600; }
+    tr.row-me td.user::before { content:"▸ "; }
+    tr.row-me td.total { color:var(--green); }
+
+    .empty { color:var(--dim); font-size:15px; max-width:680px; line-height:1.5; }
+    .empty code { color:var(--bright); }
+  </style>
+  <script>
+    // Honor the theme chosen on the dashboard (shared via localStorage).
+    (function () {
+      try { var t = localStorage.getItem('jiraffe-theme'); if (t) document.documentElement.setAttribute('data-theme', t); } catch (e) {}
+    })();
+  </script>
+</head>
+<body>
+
+<header>
+  <h1>🤖 COPILOT</h1>
+  <nav class="page-nav">
+    <a href="index.html">◆ DASHBOARD</a>
+    <a href="time.html">⏱ TIMESHEET</a>
+    <a href="worklog.html">💰 WORKLOG</a>
+    <a href="leave.html">🌴 FERIE</a>
+    <a href="jenkins.html">🔧 JENKINS</a>
+    <a href="copilot.html" class="active">🤖 COPILOT <span id="nav-copilot-total">–</span></a>
+  </nav>
+  <button id="refresh-btn" onclick="triggerPoll()">⟳ REFRESH</button>
+  <span id="updated"></span>
+</header>
+
+<div id="summary"></div>
+<div id="content">Loading…</div>
+
+<script>
+const el = id => document.getElementById(id);
+const BASE_TITLE = 'Copilot — Jiraffe';
+
+function relTime(iso) {
+  if (!iso) return 'never';
+  const s = (Date.now() - Date.parse(iso)) / 1000;
+  if (s < 60) return 'just now';
+  const m = s / 60; if (m < 60) return `${Math.round(m)}m ago`;
+  const h = m / 60; if (h < 24) return `${Math.round(h)}h ago`;
+  return `${Math.round(h / 24)}d ago`;
+}
+function esc(s) { return String(s ?? '').replace(/[&<>"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c])); }
+function fmt(n) { return n == null ? '' : n.toLocaleString(); }
+
+function render(data) {
+  const users = data.users || [];
+  if (!users.length) {
+    el('content').innerHTML = `<div class="empty">No <code>data/copilot.json</code> yet — let
+      <code>scripts/poll-copilot.sh</code> run once (it fires every 4h via launchd).</div>`;
+    document.title = BASE_TITLE;
+    return;
+  }
+
+  el('updated').textContent = data.updated ? 'updated ' + relTime(data.updated) : '';
+  document.title = data.my_month_total != null ? `(${data.my_month_total}) ${BASE_TITLE}` : BASE_TITLE;
+
+  const navEl = el('nav-copilot-total');
+  if (navEl) navEl.textContent = fmt(data.my_month_total ?? 0);
+
+  el('summary').innerHTML = `<strong>${esc(data.org || '')}</strong> — ${esc(data.month_label || '')}
+    ${data.summary ? ' · ' + esc(data.summary) : ''}`;
+
+  const dayCols = data.day_columns || [];
+  const header = `<tr><th>User</th><th>Month total</th>${dayCols.map(d => `<th>${esc(d)}</th>`).join('')}</tr>`;
+
+  const rows = users.map(u => {
+    const cls = u.user === 'All' ? 'row-all' : (u.user === data.my_user ? 'row-me' : '');
+    const cells = dayCols.map((_, i) => {
+      const v = u.daily[i];
+      if (v == null) return `<td class="empty-cell">–</td>`;
+      return `<td class="${v === 0 ? 'zero' : ''}">${fmt(v)}</td>`;
+    }).join('');
+    return `<tr class="${cls}"><td class="user">${esc(u.user)}</td><td class="total">${fmt(u.month_total)}</td>${cells}</tr>`;
+  }).join('');
+
+  el('content').innerHTML = `<div class="rows"><table><thead>${header}</thead><tbody>${rows}</tbody></table></div>`;
+}
+
+async function load() {
+  try {
+    const data = await fetch('data/copilot.json', {cache: 'no-store'}).then(r => r.json());
+    render(data);
+  } catch (e) {
+    el('content').innerHTML = `<div class="empty">No <code>data/copilot.json</code> yet — let
+      <code>scripts/poll-copilot.sh</code> run once (it fires every 4h via launchd).</div>`;
+    document.title = BASE_TITLE;
+  }
+}
+
+// Manual REFRESH: force a real backend poll (poll-copilot.sh one-shot), then reload.
+async function triggerPoll() {
+  const btn = el('refresh-btn');
+  const prevLabel = btn.textContent;
+  btn.disabled = true;
+  btn.textContent = '⟳ POLLING…';
+  el('updated').textContent = 'polling…';
+  try {
+    const r = await fetch('/api/poll-copilot', {method: 'POST'});
+    if (!r.ok) console.error('poll-copilot failed:', await r.text());
+  } catch (e) {
+    console.error('poll-copilot request error:', e);
+  } finally {
+    btn.disabled = false;
+    btn.textContent = prevLabel;
+    load();
+  }
+}
+
+load();
+setInterval(load, 5 * 60 * 1000);   // poller runs every ~4h; this just catches up after a manual run
+</script>
+</body>
+</html>
