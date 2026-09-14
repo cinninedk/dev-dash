@@ -180,7 +180,7 @@
       font-family: var(--font);
       text-shadow: var(--glow, none);
       font-size: 18px;
-      padding: 20px;
+      padding: calc(20px + var(--frame-w, 0px));
       line-height: 1.6;
     }
 
@@ -207,9 +207,13 @@
     }
 
     header { margin-bottom: 18px; display: flex; align-items: baseline; gap: 18px; flex-wrap: wrap; }
-    h1 { color: var(--bright); font-size: 28px; letter-spacing: 2px; font-family: var(--font-display); text-transform: var(--case, none); }
+    h1 { color: var(--bright); font-size: 28px; letter-spacing: 2px; font-family: var(--font-display); text-transform: var(--case, none); min-width: 320px; flex-shrink: 0; }
     .nav-link { color: var(--dim); text-decoration: none; font-size: 16px; }
     .nav-link:hover { color: var(--bright); }
+    .page-nav { display:flex; gap:4px; flex-wrap:wrap; align-items:center; flex-shrink:0; }
+    .page-nav a { color:var(--dim); text-decoration:none; font-size:15px; letter-spacing:1px; padding:4px 10px; border:1px solid transparent; }
+    .page-nav a:hover { color:var(--bright); border-color:var(--border); }
+    .page-nav a.active { color:var(--bright); border-color:var(--border); background:var(--sel-bg); }
 
     #content { display: flex; flex-direction: column; }
 
@@ -297,6 +301,60 @@
     #week-total-box .day-total { color: var(--green); font-size: 18px; font-weight: bold; }
 
     .toolbar { margin-bottom: 16px; }
+
+    #day-timeline-box {
+      background: var(--panel);
+      border: 1px solid var(--border);
+      padding: 10px 14px;
+      margin-bottom: 16px;
+    }
+    .day-timeline-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: baseline;
+      margin-bottom: 8px;
+      font-size: 14px;
+      letter-spacing: 1px;
+    }
+    #day-timeline-label { color: var(--dim); }
+    #day-timeline-gaps-summary { color: var(--yellow); font-size: 13px; }
+    #day-timeline-bar {
+      display: flex;
+      height: 26px;
+      border: 1px solid var(--border);
+      overflow: hidden;
+    }
+    .tl-block { height: 100%; box-sizing: border-box; border-right: 1px solid var(--bg); }
+    .tl-block:last-child { border-right: none; }
+    .tl-tracked { background: var(--green); opacity: 0.55; }
+    .tl-idle    { background: var(--yellow); opacity: 0.4; }
+    .tl-gap {
+      background: repeating-linear-gradient(45deg, var(--red) 0, var(--red) 4px, transparent 4px, transparent 8px);
+      opacity: 0.6;
+      cursor: pointer;
+    }
+    .tl-gap:hover { opacity: 0.9; }
+    .tl-range-labels {
+      display: flex;
+      justify-content: space-between;
+      color: var(--dim-faint);
+      font-size: 12px;
+      margin-top: 3px;
+    }
+    .tl-gap-row {
+      display: flex;
+      justify-content: space-between;
+      padding: 3px 6px;
+      font-size: 13px;
+      color: var(--text);
+      border-left: 2px solid var(--red);
+      margin-top: 4px;
+      cursor: pointer;
+      background: var(--hover-bg);
+    }
+    .tl-gap-row:hover { color: var(--bright); border-left-color: var(--bright); }
+    .tl-gap-dur { color: var(--red); white-space: nowrap; margin-left: 10px; }
+    .timeline-empty { color: var(--dim); font-size: 13px; padding: 4px 0; }
 
     .btn {
       background: none;
@@ -502,7 +560,14 @@
 
 <header>
   <h1>⏱ TIMESHEET</h1>
-  <a class="nav-link" href="index.html">← Back to Dashboard</a>
+  <nav class="page-nav">
+    <a href="index.html">◆ DASHBOARD</a>
+    <a href="time.html" class="active">⏱ TIMESHEET</a>
+    <a href="worklog.html">💰 WORKLOG</a>
+    <a href="leave.html">🌴 FERIE</a>
+    <a href="jenkins.html">🔧 JENKINS</a>
+    <a href="copilot.html">🤖 COPILOT <span id="nav-copilot-total">–</span></a>
+  </nav>
 </header>
 
 <div id="content">
@@ -517,6 +582,15 @@
       <div class="toolbar">
         <button class="btn" onclick="openNewEntry()">+ New entry</button>
         <button class="btn" onclick="openJiraSync()">⇄ Jira sync</button>
+      </div>
+      <div id="day-timeline-box">
+        <div class="day-timeline-header">
+          <span id="day-timeline-label">GAPS · TODAY</span>
+          <span id="day-timeline-gaps-summary"></span>
+        </div>
+        <div id="day-timeline-bar"></div>
+        <div id="day-timeline-range-labels" class="tl-range-labels"></div>
+        <div id="day-timeline-gaps"></div>
       </div>
       <div id="new-entry"></div>
       <div id="day-filter-banner" class="hidden">
@@ -616,6 +690,17 @@ function inputToISO(val) {
   return d.toISOString();
 }
 
+// Mirror of server _round_quarter / worklog.html's roundQuarter: snap seconds
+// to the nearest 15 min, rounding up only when >=5 min past a quarter, else
+// down; any block with tracked time bills at least 15 min.
+function roundQuarter(seconds) {
+  let m = Math.floor(seconds / 60);
+  if (m <= 0) return 0;
+  const r = m % 15;
+  m = r < 5 ? m - r : m + (15 - r);
+  return Math.max(15, m) * 60;
+}
+
 // ── active banner ─────────────────────────────────────────────────────────
 function computeElapsed() {
   const active = lastData?.active;
@@ -698,7 +783,7 @@ async function postTrack(payload) {
 // ── form open/close ─────────────────────────────────────────────────────────
 function openEdit(key, id)    { openForm = {type:'edit', key, id}; render(); }
 function openAdd(key)         { openForm = {type:'add', key}; render(); }
-function openNewEntry()       { openForm = {type:'new'}; render(); }
+function openNewEntry(start, end) { openForm = {type:'new', start, end}; render(); }
 function openEditActive(key)  { openForm = {type:'edit_active', key}; render(); }
 function cancelForm()         { openForm = null; loadAndRender(); }
 
@@ -786,8 +871,10 @@ function render() {
   // top-level new-entry form
   document.getElementById('new-entry').innerHTML =
     (openForm && openForm.type === 'new')
-      ? `<div class="tracker-item">${segFormHtml({withKey:true, onsave:'saveNew()'})}</div>`
+      ? `<div class="tracker-item">${segFormHtml({withKey:true, onsave:'saveNew()', start: openForm.start ? toInputValue(openForm.start) : '', end: openForm.end ? toInputValue(openForm.end) : ''})}</div>`
       : '';
+
+  renderDayTimeline();
 
   const trackers = data.trackers || {};
   const weekRange = viewedWeekRange();
@@ -1082,6 +1169,109 @@ function toggleMonthFilter() {
   render();
 }
 
+// ── day gap timeline ─────────────────────────────────────────────────────
+// All segments (any tracker, including the live one) that started on dateStr,
+// sorted by start time.
+function computeDaySegments(dateStr) {
+  const trackers = lastData?.trackers || {};
+  const segs = [];
+  for (const [key, tracker] of Object.entries(trackers)) {
+    for (const s of tracker.segments || []) {
+      if (localDateStr(new Date(s.started_at)) === dateStr) {
+        segs.push({start: new Date(s.started_at), end: new Date(s.ended_at), key, isIdle: key === IDLE_KEY});
+      }
+    }
+  }
+  const active = lastData?.active;
+  if (active && localDateStr(new Date(active.started_at)) === dateStr) {
+    segs.push({start: new Date(active.started_at), end: new Date(), key: active.key, isIdle: active.key === IDLE_KEY});
+  }
+  segs.sort((a, b) => a.start - b.start);
+  return segs;
+}
+
+const TL_GAP_THRESHOLD_MS = 5 * 60 * 1000; // ignore untracked slivers under 5 min
+
+function renderDayTimeline() {
+  const barEl = document.getElementById('day-timeline-bar');
+  const gapsEl = document.getElementById('day-timeline-gaps');
+  const summaryEl = document.getElementById('day-timeline-gaps-summary');
+  const rangeEl = document.getElementById('day-timeline-range-labels');
+  const labelEl = document.getElementById('day-timeline-label');
+  if (!barEl || !lastData) return;
+
+  const now = new Date();
+  const todayStr = localDateStr(now);
+  const dateStr = selectedDay || todayStr;
+  labelEl.textContent = `GAPS · ${dateStr === todayStr ? 'TODAY' : dateStr}`;
+
+  const segs = computeDaySegments(dateStr);
+  if (segs.length === 0) {
+    barEl.innerHTML = '';
+    rangeEl.innerHTML = '';
+    summaryEl.textContent = '';
+    gapsEl.innerHTML = '<div class="timeline-empty">No tracked time this day.</div>';
+    return;
+  }
+
+  const dayFloor = new Date(dateStr + 'T00:00:00');
+  const workEnd = new Date(dayFloor.getTime() + 18 * 3600e3);
+  const rangeStart = segs[0].start;
+  const lastEnd = segs[segs.length - 1].end.getTime();
+  const rangeEnd = dateStr === todayStr
+    ? new Date(Math.max(lastEnd, Math.min(workEnd.getTime(), now.getTime())))
+    : new Date(Math.max(lastEnd, workEnd.getTime()));
+  const totalMs = rangeEnd - rangeStart;
+  if (totalMs <= 0) { barEl.innerHTML = ''; rangeEl.innerHTML = ''; summaryEl.textContent = ''; gapsEl.innerHTML = ''; return; }
+
+  const fmtHm = d => d.toLocaleTimeString('da-DK', {hour: '2-digit', minute: '2-digit'});
+
+  const blocks = [];
+  const gapRows = [];
+  let cursor = rangeStart;
+  for (const s of segs) {
+    if (s.start - cursor >= TL_GAP_THRESHOLD_MS) {
+      blocks.push({type: 'gap', start: cursor, end: s.start});
+      gapRows.push({start: cursor, end: s.start});
+    }
+    blocks.push({type: s.isIdle ? 'idle' : 'tracked', start: s.start, end: s.end, key: s.key});
+    if (s.end > cursor) cursor = s.end;
+  }
+  if (rangeEnd - cursor >= TL_GAP_THRESHOLD_MS) {
+    blocks.push({type: 'gap', start: cursor, end: rangeEnd});
+    gapRows.push({start: cursor, end: rangeEnd});
+  }
+
+  barEl.innerHTML = blocks.map(b => {
+    const widthPct = Math.max(0.4, (b.end - b.start) / totalMs * 100);
+    const mins = Math.round((b.end - b.start) / 60000);
+    const cls = b.type === 'gap' ? 'tl-gap' : b.type === 'idle' ? 'tl-idle' : 'tl-tracked';
+    const what = b.type === 'gap' ? 'Untracked' : (b.key === IDLE_KEY ? 'Idle' : b.key);
+    const title = `${what} · ${fmtHm(b.start)}–${fmtHm(b.end)} (${mins}m)`;
+    const onclick = b.type === 'gap'
+      ? ` onclick="openNewEntry('${b.start.toISOString()}','${b.end.toISOString()}')"`
+      : '';
+    return `<div class="tl-block ${cls}" style="width:${widthPct}%" title="${esc(title)}"${onclick}></div>`;
+  }).join('');
+
+  rangeEl.innerHTML = `<span>${fmtHm(rangeStart)}</span><span>${fmtHm(rangeEnd)}</span>`;
+
+  const totalGapMs = gapRows.reduce((sum, g) => sum + (g.end - g.start), 0);
+  summaryEl.textContent = gapRows.length
+    ? `${gapRows.length} gap${gapRows.length === 1 ? '' : 's'} · ${formatHm(Math.round(totalGapMs / 1000))} untracked`
+    : 'No gaps 🎉';
+
+  gapsEl.innerHTML = gapRows.map(g => {
+    const mins = Math.round((g.end - g.start) / 60000);
+    const dur = mins >= 60 ? `${Math.floor(mins / 60)}h ${mins % 60}m` : `${mins}m`;
+    return `
+      <div class="tl-gap-row" title="Fill this gap" onclick="openNewEntry('${g.start.toISOString()}','${g.end.toISOString()}')">
+        <span>${fmtHm(g.start)} – ${fmtHm(g.end)}</span>
+        <span class="tl-gap-dur">${dur}</span>
+      </div>`;
+  }).join('');
+}
+
 function selectDay(ds, label) {
   if (selectedDay === ds) { clearDayFilter(); return; }
   monthFilter = null;
@@ -1115,19 +1305,29 @@ function renderDailyPanel() {
   monday.setDate(now.getDate() - ((now.getDay() + 6) % 7) + weekOffset * 7);
   monday.setHours(0, 0, 0, 0);
 
-  // Build a map: localDateStr -> seconds
-  const dayTotals = {};
+  // Build a map: 'key|localDateStr' -> raw seconds, then round each
+  // (tracker, day) block to the nearest quarter-hour before summing into the
+  // day total — same rule the worklog page applies, so the two pages agree.
+  const perKeyDay = {};
   const trackers = lastData.trackers || {};
   const activeKey = lastData.active?.key;
   for (const [key, tracker] of Object.entries(trackers)) {
     for (const seg of tracker.segments || []) {
       const d = localDateStr(new Date(seg.started_at));
-      dayTotals[d] = (dayTotals[d] || 0) + (seg.seconds || 0);
+      const k = key + '|' + d;
+      perKeyDay[k] = (perKeyDay[k] || 0) + (seg.seconds || 0);
     }
   }
-  // Add live elapsed for active tracker to today
+  // Fold live elapsed for the active tracker into its own day block so it
+  // rounds together with that tracker's other segments for today.
   if (activeKey && weekOffset === 0) {
-    dayTotals[todayStr] = (dayTotals[todayStr] || 0) + computeElapsed();
+    const k = activeKey + '|' + todayStr;
+    perKeyDay[k] = (perKeyDay[k] || 0) + computeElapsed();
+  }
+  const dayTotals = {};
+  for (const [k, secs] of Object.entries(perKeyDay)) {
+    const d = k.slice(k.indexOf('|') + 1);
+    dayTotals[d] = (dayTotals[d] || 0) + roundQuarter(secs);
   }
 
   const DAY_NAMES = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri'];
@@ -1430,6 +1630,18 @@ document.addEventListener('mousedown', e => {
     clearDayFilter();
   }
 });
+</script>
+<script>
+  (function () {
+    function loadCopilotNav() {
+      fetch('data/copilot.json', {cache:'no-store'}).then(r => r.json()).then(d => {
+        const el = document.getElementById('nav-copilot-total');
+        if (el) el.textContent = (d.my_month_total ?? 0).toLocaleString();
+      }).catch(() => {});
+    }
+    loadCopilotNav();
+    setInterval(loadCopilotNav, 5 * 60 * 1000);
+  })();
 </script>
 
 </body>
