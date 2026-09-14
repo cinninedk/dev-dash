@@ -6,23 +6,14 @@
   <title>Jiraffe</title>
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;600&family=Kalam:wght@300;400;700&family=Permanent+Marker&family=Share+Tech+Mono&family=VT323&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="theme.css">
   <style>
-    /* ── THEMES ──────────────────────────────────────────────────────────
-       Each theme overrides the same variable set. :root holds the default
-       (Amber) so the UI still renders correctly before JS applies a theme.
+    /* ── THEME EXTRAS ────────────────────────────────────────────────────
+       Page-specific variables per theme (row/hover colors etc). Core
+       palette + expression vars live in theme.css, shared by every page.
        Add a theme by copying a block and registering it in THEMES (JS). */
     :root,
     [data-theme="amber"] {
-      --bg:     #0a0700;
-      --panel:  #100c00;
-      --border: #8a5500;
-      --dim:    #e0aa38;
-      --text:   #f5aa30;
-      --bright: #ffd455;
-      --green:  #6ed464;
-      --red:    #f05858;
-      --yellow: #f8c838;
-      --blue:   #7eb8ff;
       --row-border:      rgba(74,45,0,0.35);
       --row-border-soft: rgba(74,45,0,0.20);
       --hover-bg:        rgba(212,135,10,0.05);
@@ -30,27 +21,10 @@
       --subtle-bg-hover: rgba(30,80,180,0.11);
       --scanline:        rgba(0,0,0,0.07);
       --overlay:         rgba(0,0,0,0.75);
-      /* expression — font, casing, phosphor glow, CRT frame */
-      --font:            'Share Tech Mono', monospace;
-      --font-display:    'Share Tech Mono', monospace;
-      --case:            none;
-      --glow:            0 0 1px rgba(245,170,48,0.35);
-      --frame-w:         0px;
-      --frame-c:         transparent;
       --scanline-step:   4px;
     }
 
     [data-theme="green"] {
-      --bg:     #000800;
-      --panel:  #001209;
-      --border: #1f7a3a;
-      --dim:    #3fd06a;
-      --text:   #46e878;
-      --bright: #9dffb0;
-      --green:  #6ed464;
-      --red:    #ff6b6b;
-      --yellow: #e8e060;
-      --blue:   #6bd0ff;
       --row-border:      rgba(20,90,40,0.40);
       --row-border-soft: rgba(20,90,40,0.22);
       --hover-bg:        rgba(40,200,90,0.06);
@@ -58,25 +32,10 @@
       --subtle-bg-hover: rgba(40,200,120,0.12);
       --scanline:        rgba(0,0,0,0.14);
       --overlay:         rgba(0,0,0,0.78);
-      /* old phosphor monitor — chunky terminal font, heavy glow + scanlines */
-      --font:            'VT323', monospace;
-      --font-display:    'VT323', monospace;
-      --case:            uppercase;
-      --glow:            0 0 3px rgba(70,232,120,0.5);
       --scanline-step:   3px;
     }
 
     [data-theme="ice"] {
-      --bg:     #00060d;
-      --panel:  #031019;
-      --border: #1d6a8a;
-      --dim:    #52b8d8;
-      --text:   #7fd4ee;
-      --bright: #b8f0ff;
-      --green:  #6ed4a8;
-      --red:    #ff7a7a;
-      --yellow: #f0d060;
-      --blue:   #8ec5ff;
       --row-border:      rgba(20,80,110,0.40);
       --row-border-soft: rgba(20,80,110,0.22);
       --hover-bg:        rgba(40,150,200,0.07);
@@ -84,25 +43,10 @@
       --subtle-bg-hover: rgba(60,120,220,0.13);
       --scanline:        rgba(0,0,0,0.05);
       --overlay:         rgba(0,8,16,0.78);
-      /* modern crisp terminal — clean mono, no scanlines, faint glow */
-      --font:            'IBM Plex Mono', monospace;
-      --font-display:    'IBM Plex Mono', monospace;
-      --case:            none;
-      --glow:            0 0 1px rgba(127,212,238,0.25);
       --scanline-step:   6px;
     }
 
     [data-theme="paper"] {
-      --bg:     #f4efe3;
-      --panel:  #eae3d2;
-      --border: #b09a6a;
-      --dim:    #7a6a45;
-      --text:   #3a3325;
-      --bright: #1c1810;
-      --green:  #3a8a40;
-      --red:    #c83232;
-      --yellow: #b8881a;
-      --blue:   #2a6abf;
       --row-border:      rgba(120,100,60,0.30);
       --row-border-soft: rgba(120,100,60,0.18);
       --hover-bg:        rgba(120,90,30,0.08);
@@ -122,16 +66,6 @@
        chunky bitmap-style font, ALL CAPS, soft glow, and a border frame
        around the whole screen like a real C64 boot screen. */
     [data-theme="c64"] {
-      --bg:     #40318d;
-      --panel:  #4a3ba2;
-      --border: #7869c4;
-      --dim:    #9b8fe0;
-      --text:   #c4bdf2;
-      --bright: #ffffff;
-      --green:  #94e089;
-      --red:    #e58178;
-      --yellow: #cfd06a;
-      --blue:   #9b8fff;
       --row-border:      rgba(120,105,196,0.40);
       --row-border-soft: rgba(120,105,196,0.24);
       --hover-bg:        rgba(150,135,230,0.14);
@@ -139,29 +73,13 @@
       --subtle-bg-hover: rgba(180,170,245,0.15);
       --scanline:        rgba(0,0,0,0.10);
       --overlay:         rgba(18,10,55,0.80);
-      --font:            'VT323', monospace;
-      --font-display:    'VT323', monospace;
-      --case:            uppercase;
-      --glow:            0 0 2px rgba(155,143,255,0.55);
-      --frame-w:         9px;
-      --frame-c:         #7869c4;
       --scanline-step:   3px;
     }
 
-    /* Corkboard — a physical sprint board: post-it cards pinned to cork
-       inside a wooden frame, written in marker + handwriting. The sticky-note
-       look itself lives in the [data-theme="board"]-scoped rules further down. */
+    /* Corkboard — post-it cards pinned to cork inside a wooden frame,
+       written in marker + handwriting. The sticky-note look itself lives
+       in the [data-theme="board"]-scoped rules further down. */
     [data-theme="board"] {
-      --bg:     #c2a173;
-      --panel:  #d9c39d;
-      --border: #7a5a36;
-      --dim:    #5c4a30;
-      --text:   #2c2418;
-      --bright: #14100a;
-      --green:  #2f7d33;
-      --red:    #bf3328;
-      --yellow: #a8780f;
-      --blue:   #2f5fa8;
       --row-border:      rgba(90,65,35,0.30);
       --row-border-soft: rgba(90,65,35,0.18);
       --hover-bg:        rgba(90,65,35,0.10);
@@ -169,12 +87,6 @@
       --subtle-bg-hover: rgba(60,90,160,0.12);
       --scanline:        rgba(0,0,0,0);
       --overlay:         rgba(40,30,18,0.55);
-      --font:            'Kalam', cursive;
-      --font-display:    'Permanent Marker', cursive;
-      --case:            none;
-      --glow:            none;
-      --frame-w:         12px;
-      --frame-c:         #6e4a2a;
       --scanline-step:   8px;
     }
 
@@ -789,15 +701,7 @@
     [data-theme="board"] .empty-msg,
     [data-theme="board"] .pr-detail { color: var(--dim); }
   </style>
-  <script>
-    // Apply the saved theme before first paint to avoid a flash of the default.
-    (function () {
-      try {
-        var t = localStorage.getItem('jiraffe-theme');
-        if (t) document.documentElement.setAttribute('data-theme', t);
-      } catch (e) {}
-    })();
-  </script>
+  <script src="theme.js"></script>
 </head>
 <body>
 

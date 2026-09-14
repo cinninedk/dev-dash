@@ -6,21 +6,12 @@
   <title>Worklog — Jiraffe</title>
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;600&family=Kalam:wght@300;400;700&family=Permanent+Marker&family=Share+Tech+Mono&family=VT323&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="theme.css">
   <style>
-    /* Themes — kept in sync with index.html. The active theme is shared via
-       localStorage('jiraffe-theme') and applied by the early <head> script. */
+    /* Theme extras — page-specific variables per theme (core palette lives in
+       theme.css, shared by every page). */
     :root,
     [data-theme="amber"] {
-      --bg:     #0a0700;
-      --panel:  #100c00;
-      --border: #8a5500;
-      --dim:    #e0aa38;
-      --text:   #f5aa30;
-      --bright: #ffd455;
-      --green:  #6ed464;
-      --red:    #f05858;
-      --yellow: #f8c838;
-      --blue:   #7eb8ff;
       --sel-bg:          rgba(255,212,85,0.07);
       --hover-bg:        rgba(212,135,10,0.04);
       --row-border-soft: rgba(138,85,0,0.30);
@@ -28,25 +19,9 @@
       --overlay:         rgba(0,0,0,0.75);
       --scanline:        rgba(0,0,0,0.07);
       --scanline-step:   4px;
-      --font:            'Share Tech Mono', monospace;
-      --font-display:    'Share Tech Mono', monospace;
-      --case:            none;
-      --glow:            0 0 1px rgba(245,170,48,0.35);
-      --frame-w:         0px;
-      --frame-c:         transparent;
     }
 
     [data-theme="green"] {
-      --bg:     #000800;
-      --panel:  #001209;
-      --border: #1f7a3a;
-      --dim:    #3fd06a;
-      --text:   #46e878;
-      --bright: #9dffb0;
-      --green:  #6ed464;
-      --red:    #ff6b6b;
-      --yellow: #e8e060;
-      --blue:   #6bd0ff;
       --sel-bg:          rgba(157,255,176,0.08);
       --hover-bg:        rgba(40,200,90,0.05);
       --row-border-soft: rgba(20,90,40,0.30);
@@ -54,23 +29,9 @@
       --overlay:         rgba(0,0,0,0.78);
       --scanline:        rgba(0,0,0,0.14);
       --scanline-step:   3px;
-      --font:            'VT323', monospace;
-      --font-display:    'VT323', monospace;
-      --case:            uppercase;
-      --glow:            0 0 3px rgba(70,232,120,0.5);
     }
 
     [data-theme="ice"] {
-      --bg:     #00060d;
-      --panel:  #031019;
-      --border: #1d6a8a;
-      --dim:    #52b8d8;
-      --text:   #7fd4ee;
-      --bright: #b8f0ff;
-      --green:  #6ed4a8;
-      --red:    #ff7a7a;
-      --yellow: #f0d060;
-      --blue:   #8ec5ff;
       --sel-bg:          rgba(184,240,255,0.08);
       --hover-bg:        rgba(40,150,200,0.05);
       --row-border-soft: rgba(20,80,110,0.30);
@@ -78,23 +39,9 @@
       --overlay:         rgba(0,8,16,0.78);
       --scanline:        rgba(0,0,0,0.05);
       --scanline-step:   6px;
-      --font:            'IBM Plex Mono', monospace;
-      --font-display:    'IBM Plex Mono', monospace;
-      --case:            none;
-      --glow:            0 0 1px rgba(127,212,238,0.25);
     }
 
     [data-theme="paper"] {
-      --bg:     #f4efe3;
-      --panel:  #eae3d2;
-      --border: #b09a6a;
-      --dim:    #7a6a45;
-      --text:   #3a3325;
-      --bright: #1c1810;
-      --green:  #3a8a40;
-      --red:    #c83232;
-      --yellow: #b8881a;
-      --blue:   #2a6abf;
       --sel-bg:          rgba(120,90,30,0.10);
       --hover-bg:        rgba(120,90,30,0.06);
       --row-border-soft: rgba(120,100,60,0.25);
@@ -102,23 +49,9 @@
       --overlay:         rgba(40,35,25,0.55);
       --scanline:        rgba(0,0,0,0.015);
       --scanline-step:   8px;
-      --font:            'IBM Plex Mono', monospace;
-      --font-display:    'IBM Plex Mono', monospace;
-      --case:            none;
-      --glow:            none;
     }
 
     [data-theme="c64"] {
-      --bg:     #40318d;
-      --panel:  #4a3ba2;
-      --border: #7869c4;
-      --dim:    #9b8fe0;
-      --text:   #c4bdf2;
-      --bright: #ffffff;
-      --green:  #94e089;
-      --red:    #e58178;
-      --yellow: #cfd06a;
-      --blue:   #9b8fff;
       --sel-bg:          rgba(180,170,245,0.12);
       --hover-bg:        rgba(150,135,230,0.14);
       --row-border-soft: rgba(120,105,196,0.30);
@@ -126,25 +59,9 @@
       --overlay:         rgba(18,10,55,0.80);
       --scanline:        rgba(0,0,0,0.10);
       --scanline-step:   3px;
-      --font:            'VT323', monospace;
-      --font-display:    'VT323', monospace;
-      --case:            uppercase;
-      --glow:            0 0 2px rgba(155,143,255,0.55);
-      --frame-w:         9px;
-      --frame-c:         #7869c4;
     }
 
     [data-theme="board"] {
-      --bg:     #c2a173;
-      --panel:  #d9c39d;
-      --border: #7a5a36;
-      --dim:    #5c4a30;
-      --text:   #2c2418;
-      --bright: #14100a;
-      --green:  #2f7d33;
-      --red:    #bf3328;
-      --yellow: #a8780f;
-      --blue:   #2f5fa8;
       --sel-bg:          rgba(168,120,15,0.16);
       --hover-bg:        rgba(90,65,35,0.10);
       --row-border-soft: rgba(90,65,35,0.22);
@@ -152,12 +69,6 @@
       --overlay:         rgba(40,30,18,0.55);
       --scanline:        rgba(0,0,0,0);
       --scanline-step:   8px;
-      --font:            'Kalam', cursive;
-      --font-display:    'Permanent Marker', cursive;
-      --case:            none;
-      --glow:            none;
-      --frame-w:         12px;
-      --frame-c:         #6e4a2a;
     }
 
     /* Corkboard texture, shared with the dashboard's board theme. */
@@ -291,15 +202,7 @@
     .lt-other { color: var(--yellow); }
     .note { color: var(--dim); font-size: 14px; margin-top: 6px; max-width: 760px; line-height: 1.4; }
   </style>
-  <script>
-    // Honor the theme chosen on the dashboard (shared via localStorage).
-    (function () {
-      try {
-        var t = localStorage.getItem('jiraffe-theme');
-        if (t) document.documentElement.setAttribute('data-theme', t);
-      } catch (e) {}
-    })();
-  </script>
+  <script src="theme.js"></script>
 </head>
 <body>
 

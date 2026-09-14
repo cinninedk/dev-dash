@@ -1,0 +1,118 @@
+/* ── THEMES (shared across every page) ──────────────────────────────────
+   Core palette + expression variables, identical on every page. Each page's
+   own <style> may still add page-specific variables per theme (e.g. row
+   hover/selection colors) alongside these.
+   Add a theme by copying a block here and registering it in THEMES (JS). */
+:root,
+[data-theme="amber"] {
+  --bg:     #0a0700;
+  --panel:  #100c00;
+  --border: #8a5500;
+  --dim:    #e0aa38;
+  --text:   #f5aa30;
+  --bright: #ffd455;
+  --green:  #6ed464;
+  --red:    #f05858;
+  --yellow: #f8c838;
+  --blue:   #7eb8ff;
+  --font:            'Share Tech Mono', monospace;
+  --font-display:    'Share Tech Mono', monospace;
+  --case:            none;
+  --glow:            0 0 1px rgba(245,170,48,0.35);
+  --frame-w:         0px;
+  --frame-c:         transparent;
+}
+
+[data-theme="green"] {
+  --bg:     #000800;
+  --panel:  #001209;
+  --border: #1f7a3a;
+  --dim:    #3fd06a;
+  --text:   #46e878;
+  --bright: #9dffb0;
+  --green:  #6ed464;
+  --red:    #ff6b6b;
+  --yellow: #e8e060;
+  --blue:   #6bd0ff;
+  --font:            'VT323', monospace;
+  --font-display:    'VT323', monospace;
+  --case:            uppercase;
+  --glow:            0 0 3px rgba(70,232,120,0.5);
+}
+
+[data-theme="ice"] {
+  --bg:     #00060d;
+  --panel:  #031019;
+  --border: #1d6a8a;
+  --dim:    #52b8d8;
+  --text:   #7fd4ee;
+  --bright: #b8f0ff;
+  --green:  #6ed4a8;
+  --red:    #ff7a7a;
+  --yellow: #f0d060;
+  --blue:   #8ec5ff;
+  --font:            'IBM Plex Mono', monospace;
+  --font-display:    'IBM Plex Mono', monospace;
+  --case:            none;
+  --glow:            0 0 1px rgba(127,212,238,0.25);
+}
+
+[data-theme="paper"] {
+  --bg:     #f4efe3;
+  --panel:  #eae3d2;
+  --border: #b09a6a;
+  --dim:    #7a6a45;
+  --text:   #3a3325;
+  --bright: #1c1810;
+  --green:  #3a8a40;
+  --red:    #c83232;
+  --yellow: #b8881a;
+  --blue:   #2a6abf;
+  --font:            'IBM Plex Mono', monospace;
+  --font-display:    'IBM Plex Mono', monospace;
+  --case:            none;
+  --glow:            none;
+}
+
+/* Commodore 64 — PETSCII-blue home computer: light-blue on deep blue,
+   chunky bitmap-style font, ALL CAPS, soft glow, and a border frame
+   around the whole screen like a real C64 boot screen. */
+[data-theme="c64"] {
+  --bg:     #40318d;
+  --panel:  #4a3ba2;
+  --border: #7869c4;
+  --dim:    #9b8fe0;
+  --text:   #c4bdf2;
+  --bright: #ffffff;
+  --green:  #94e089;
+  --red:    #e58178;
+  --yellow: #cfd06a;
+  --blue:   #9b8fff;
+  --font:            'VT323', monospace;
+  --font-display:    'VT323', monospace;
+  --case:            uppercase;
+  --glow:            0 0 2px rgba(155,143,255,0.55);
+  --frame-w:         9px;
+  --frame-c:         #7869c4;
+}
+
+/* Corkboard — a physical sprint board: post-it cards pinned to cork inside
+   a wooden frame, written in marker + handwriting. */
+[data-theme="board"] {
+  --bg:     #c2a173;
+  --panel:  #d9c39d;
+  --border: #7a5a36;
+  --dim:    #5c4a30;
+  --text:   #2c2418;
+  --bright: #14100a;
+  --green:  #2f7d33;
+  --red:    #bf3328;
+  --yellow: #a8780f;
+  --blue:   #2f5fa8;
+  --font:            'Kalam', cursive;
+  --font-display:    'Permanent Marker', cursive;
+  --case:            none;
+  --glow:            none;
+  --frame-w:         12px;
+  --frame-c:         #6e4a2a;
+}
