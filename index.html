@@ -335,12 +335,15 @@
       font-size: 14px;
       padding: 2px 5px;
       letter-spacing: 0.5px;
+      flex-shrink: 0;
+      white-space: nowrap;
     }
     .track-btn:hover { color: var(--bright); border-color: var(--bright); }
     .track-btn.active { color: var(--bright); border-color: var(--bright); animation: blink 1.2s step-start infinite; }
     .desc-btn {
       background: none; border: 1px solid var(--border); color: var(--dim);
       cursor: pointer; font-family: inherit; font-size: 14px; padding: 2px 5px; letter-spacing: 0.5px;
+      flex-shrink: 0; white-space: nowrap;
     }
     .desc-btn:hover { color: var(--bright); border-color: var(--bright); }
     .desc-btn:disabled { cursor: default; }
@@ -392,6 +395,17 @@
     .tracking-idle { color: var(--yellow); }
     .tracking-stop { color: var(--red); }
 
+    .tracking-row {
+      display: flex; align-items: center; gap: 5px; flex-wrap: nowrap;
+      padding: 2px 0; font-size: 16px; color: var(--dim);
+    }
+    .tracking-row-key {
+      flex: 1 1 auto; min-width: 0;
+      white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+    }
+    .tracking-row-time { color: var(--green); flex-shrink: 0; white-space: nowrap; }
+    .tracking-row-btn { flex-shrink: 0; padding: 1px 6px; font-size: 12px; }
+
     .copy-btn {
       background: none;
       border: 1px solid var(--border);
@@ -401,6 +415,7 @@
       font-family: inherit;
       padding: 1px 6px;
       letter-spacing: 0.3px;
+      flex-shrink: 0;
     }
     .copy-btn:hover { color: var(--text); border-color: var(--bright); }
 
@@ -544,7 +559,15 @@
       white-space: nowrap;
     }
 
-    .card-key     { color: var(--bright); font-size: 17px; }
+    .card-top {
+      display: flex; gap: 6px; align-items: center; flex-wrap: nowrap;
+    }
+    .card-key {
+      color: var(--bright); font-size: 17px;
+      flex: 1 1 auto; min-width: 0;
+      white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+    }
+    .card-time { flex-shrink: 0; white-space: nowrap; }
     .card-summary {
       color: var(--text);
       font-size: 19px;
@@ -1048,10 +1071,15 @@
 
     const issuesHtml = Object.entries(trackers)
       .filter(([k]) => k !== '__IDLE__')
-      .map(([key]) => {
+      .map(([key, tracker]) => {
         const secs = dailySecondsForKey(key);
         if (!secs) return '';
-        return `<div style="font-size: 16px; color: var(--dim); padding: 2px 0;">${key}: <span data-track-total="${esc(key)}" style="color: var(--green);">${formatElapsed(secs)}</span></div>`;
+        const isTracking = active?.key === key;
+        return `<div class="tracking-row">
+          <span class="tracking-row-key">${esc(key)}</span>
+          <span class="tracking-row-time" data-track-total="${esc(key)}">${formatElapsed(secs)}</span>
+          <button class="track-btn tracking-row-btn ${isTracking ? 'active' : ''}" data-key="${esc(key)}" data-summary="${esc(tracker.summary || key)}" onclick="trackIssue(this.getAttribute('data-key'), this.getAttribute('data-summary'))">${isTracking ? '■' : 'Track'}</button>
+        </div>`;
       })
       .join('');
 
@@ -1444,7 +1472,7 @@
     }
     return `
       <div class="jira-card${extraClass ? ' ' + extraClass : ''}" data-issue-key="${esc(issue.key)}">
-        <div style="display: flex; gap: 6px; align-items: center;">
+        <div class="card-top">
           <div class="card-key">${keyHtml}</div>
           ${copyKeyBtn}
           ${copyLinkBtn}
