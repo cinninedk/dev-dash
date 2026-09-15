@@ -8,11 +8,10 @@ ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 OUT="$ROOT/data/copilot.json"
 MY_USER="nine-cin"
 
-# When run interactively (not via launchd), PATH/GITHUB_COPILOT_UDAGE_TOKEN come
-# from the shell profile as usual. The launchd plist sets both explicitly in its
-# EnvironmentVariables dict, since launchd doesn't source .zshrc (and TCC blocks
-# launchd-spawned processes from reading ~/Documents/dotfiles/.zshrc anyway).
+# launchd doesn't source .zshrc, so PATH needs setting explicitly here rather
+# than relying on the shell profile.
 export PATH="/opt/homebrew/bin:$HOME/bin:$PATH"
+export GITHUB_COPILOT_UDAGE_TOKEN=$(cat "$ROOT/secrets/copilot-token")
 
 log() { echo "[$(date '+%H:%M:%S')] $*"; }
 
