@@ -229,6 +229,94 @@ def _jira_secrets():
     return jira_url.rstrip("/"), token
 
 
+def _config_var(name: str) -> str:
+    """Read a simple NAME="value" (or NAME=value) assignment from secrets/config."""
+    for line in (ROOT / "secrets" / "config").read_text().splitlines():
+        if line.startswith(name + "="):
+            val = line.split("=", 1)[1].strip()
+            if val.startswith('"') and val.endswith('"'):
+                val = val[1:-1].replace('\\"', '"')
+            return val
+    return ""
+
+
+def _backlog_jql(kind: str) -> str:
+    """JQL_NEXT_CURRENT / JQL_NEXT_FUTURE from secrets/config, same filter the
+    dashboard's NEXT TASK panel already uses (unassigned, current/future sprint,
+    labels not in STIL), with $JIRA_PROJECTS substituted in."""
+    jql = _config_var(f"JQL_NEXT_{kind}")
+    return jql.replace("$JIRA_PROJECTS", _config_var("JIRA_PROJECTS"))
+
+
+def _field_by_name(fields: dict, names: dict, pattern: str):
+    """First non-empty field value whose *display name* matches pattern.
+
+    Like _text_field_by_name but returns the raw value (numbers included),
+    for custom fields such as Story Points whose id varies per Jira instance.
+    """
+    for fid, fname in names.items():
+        if re.search(pattern, fname or "", re.I):
+            val = fields.get(fid)
+            if val not in (None, "", []):
+                return val
+    return None
+
+
+def _fetch_backlog() -> list:
+    """Unassigned backlog candidates for the current + future sprints, enriched
+    with description/epic/story-points/blocked-by for the standalone backlog page."""
+    issues = []
+    for kind, sprint_type in (("CURRENT", "current"), ("FUTURE", "next")):
+        jql = _backlog_jql(kind)
+        if not jql:
+            continue
+        data = _jira_request("GET", "/rest/api/2/search", params={
+            "jql": jql, "maxResults": 100, "fields": "*all", "expand": "names",
+        })
+        names = data.get("names", {})
+        for issue in data.get("issues", []):
+            f = issue.get("fields", {})
+            desc = (f.get("description") or "").strip()
+            if len(desc) > 400:
+                desc = desc[:400].rstrip() + "…"
+            blocked_by = [
+                {"key": link["inwardIssue"]["key"],
+                 "summary": link["inwardIssue"]["fields"].get("summary", ""),
+                 "status": (link["inwardIssue"]["fields"].get("status", {}).get("name") or "").upper()}
+                for link in (f.get("issuelinks") or [])
+                if link.get("type", {}).get("inward") == "is blocked by" and link.get("inwardIssue")
+            ]
+            issues.append({
+                "key": issue.get("key", ""),
+                "summary": f.get("summary", ""),
+                "status": (f.get("status") or {}).get("name", "").upper(),
+                "type": (f.get("issuetype") or {}).get("name", ""),
+                "priority": (f.get("priority") or {}).get("name", ""),
+                "updated": f.get("updated", ""),
+                "labels": f.get("labels") or [],
+                "description": desc,
+                "epic_key": _field_by_name(f, names, r"epic\s*link"),
+                "story_points": _field_by_name(f, names, r"story\s*point"),
+                "blocked_by": blocked_by,
+                "sprint_type": sprint_type,
+            })
+
+    epic_keys = sorted({i["epic_key"] for i in issues if i.get("epic_key")})
+    epic_summaries = {}
+    if epic_keys:
+        data = _jira_request("GET", "/rest/api/2/search", params={
+            "jql": f"key in ({','.join(epic_keys)})",
+            "maxResults": len(epic_keys),
+            "fields": "summary",
+        })
+        epic_summaries = {e["key"]: e.get("fields", {}).get("summary", "")
+                           for e in data.get("issues", [])}
+    for i in issues:
+        ek = i.pop("epic_key")
+        i["epic"] = {"key": ek, "summary": epic_summaries.get(ek, "")} if ek else None
+    return issues
+
+
 def _jira_request(method: str, path: str, body=None, params=None):
     base, token = _jira_secrets()
     url = base + path
@@ -760,6 +848,9 @@ class Handler(http.server.SimpleHTTPRequestHandler):
         if self.path.startswith("/api/sonar-issues"):
             self._handle_sonar_issues()
             return
+        if self.path.startswith("/api/backlog"):
+            self._handle_backlog()
+            return
         if self.path.startswith("/api/worklog-status"):
             self._handle_worklog_status()
             return
@@ -829,6 +920,15 @@ class Handler(http.server.SimpleHTTPRequestHandler):
         self.send_header("Content-Length", str(len(body)))
         self.end_headers()
         self.wfile.write(body)
+
+    def _handle_backlog(self):
+        try:
+            jira_url, _ = _jira_secrets()
+            self._respond_json(200, {"jira_url": jira_url, "issues": _fetch_backlog()})
+        except urllib.error.HTTPError as e:
+            self._respond(502, _http_err_msg(e))
+        except Exception as e:
+            self._respond(502, f"Jira error: {e}")
 
     def _handle_sonar_issues(self):
         qs = urllib.parse.parse_qs(urllib.parse.urlparse(self.path).query)

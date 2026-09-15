@@ -1,0 +1,316 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Backlog — Jiraffe</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;600&family=Kalam:wght@300;400;700&family=Permanent+Marker&family=Share+Tech+Mono&family=VT323&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="theme.css">
+  <style>
+    /* Theme extras — page-specific variables per theme (core palette lives in
+       theme.css, shared by every page). */
+    :root,
+    [data-theme="amber"] {
+      --sel-bg:rgba(255,212,85,0.07); --hover-bg:rgba(212,135,10,0.04); --row-border-soft:rgba(138,85,0,0.30); --dim-faint:rgba(138,85,0,0.50); --overlay:rgba(0,0,0,0.75); --scanline:rgba(0,0,0,0.07); --scanline-step:4px;
+    }
+    [data-theme="green"] {
+      --sel-bg:rgba(157,255,176,0.08); --hover-bg:rgba(40,200,90,0.05); --row-border-soft:rgba(20,90,40,0.30); --dim-faint:rgba(63,208,106,0.40); --overlay:rgba(0,0,0,0.78); --scanline:rgba(0,0,0,0.14); --scanline-step:3px;
+    }
+    [data-theme="ice"] {
+      --sel-bg:rgba(184,240,255,0.08); --hover-bg:rgba(40,150,200,0.05); --row-border-soft:rgba(20,80,110,0.30); --dim-faint:rgba(82,184,216,0.40); --overlay:rgba(0,8,16,0.78); --scanline:rgba(0,0,0,0.05); --scanline-step:6px;
+    }
+    [data-theme="paper"] {
+      --sel-bg:rgba(120,90,30,0.10); --hover-bg:rgba(120,90,30,0.06); --row-border-soft:rgba(120,100,60,0.25); --dim-faint:rgba(122,106,69,0.50); --overlay:rgba(40,35,25,0.55); --scanline:rgba(0,0,0,0.015); --scanline-step:8px;
+    }
+    [data-theme="c64"] {
+      --sel-bg:rgba(180,170,245,0.12); --hover-bg:rgba(150,135,230,0.14); --row-border-soft:rgba(120,105,196,0.30); --dim-faint:rgba(155,143,224,0.45); --overlay:rgba(18,10,55,0.80); --scanline:rgba(0,0,0,0.10); --scanline-step:3px;
+    }
+    [data-theme="board"] {
+      --sel-bg:rgba(168,120,15,0.16); --hover-bg:rgba(90,65,35,0.10); --row-border-soft:rgba(90,65,35,0.22); --dim-faint:rgba(92,74,48,0.50); --overlay:rgba(40,30,18,0.55); --scanline:rgba(0,0,0,0); --scanline-step:8px;
+    }
+    [data-theme="board"] body {
+      background-color:#c2a173;
+      background-image:
+        radial-gradient(circle at 18% 28%, rgba(108,74,40,0.22) 0 1.5px, transparent 2px),
+        radial-gradient(circle at 63% 54%, rgba(92,60,28,0.18) 0 1.5px, transparent 2px),
+        radial-gradient(circle at 82% 20%, rgba(132,96,56,0.20) 0 1.5px, transparent 2px),
+        radial-gradient(circle at 40% 82%, rgba(88,56,26,0.20) 0 1.5px, transparent 2px),
+        radial-gradient(circle at 90% 75%, rgba(120,86,48,0.16) 0 1.5px, transparent 2px);
+      background-size:23px 23px,17px 17px,29px 29px,19px 19px,13px 13px;
+    }
+    [data-theme="board"] .b-card { transform:rotate(-0.4deg); }
+    [data-theme="board"] .b-card:nth-child(3n) { transform:rotate(0.5deg); }
+    [data-theme="board"] .b-card:nth-child(5n) { transform:rotate(-0.7deg); }
+
+    * { box-sizing:border-box; margin:0; padding:0; }
+    body {
+      background:var(--bg); color:var(--text); font-family:var(--font); text-shadow:var(--glow,none);
+      font-size:18px; padding:calc(20px + var(--frame-w, 0px)); line-height:1.5;
+    }
+    body::after {
+      content:""; position:fixed; inset:0; pointer-events:none; z-index:9999;
+      background:repeating-linear-gradient(0deg,
+        transparent, transparent calc(var(--scanline-step,4px)/2),
+        var(--scanline) calc(var(--scanline-step,4px)/2), var(--scanline) var(--scanline-step,4px));
+    }
+    body::before {
+      content:""; position:fixed; inset:0; pointer-events:none; z-index:9998;
+      border:var(--frame-w,0px) solid var(--frame-c,transparent);
+    }
+
+    header { margin-bottom:18px; display:flex; align-items:baseline; gap:18px; flex-wrap:wrap; }
+    h1 { color:var(--bright); font-size:28px; letter-spacing:2px; font-family:var(--font-display); text-transform:var(--case,none); min-width:320px; flex-shrink:0; }
+    #updated { color:var(--dim-faint); font-size:14px; }
+    #reload-btn {
+      background:none; border:1px solid var(--border); color:var(--text); font-family:inherit;
+      font-size:15px; padding:3px 10px; cursor:pointer; letter-spacing:1px;
+    }
+    #reload-btn:hover { border-color:var(--bright); color:var(--bright); }
+    #reload-btn.spinning { color:var(--dim-faint); cursor:wait; }
+    #filter-input {
+      background:var(--panel); border:1px solid var(--border); color:var(--text); font-family:inherit;
+      font-size:15px; padding:4px 10px; min-width:240px; flex:0 1 260px;
+    }
+    #filter-input:focus { outline:none; border-color:var(--bright); }
+    #filter-input::placeholder { color:var(--dim-faint); }
+
+    .page-nav { display:flex; gap:4px; flex-wrap:wrap; align-items:center; flex-shrink:0; }
+    .page-nav a { color:var(--dim); text-decoration:none; font-size:15px; letter-spacing:1px; padding:4px 10px; border:1px solid transparent; }
+    .page-nav a:hover { color:var(--bright); border-color:var(--border); }
+    .page-nav a.active { color:var(--bright); border-color:var(--border); background:var(--sel-bg); }
+
+    .section-title {
+      font-family:var(--font-display); text-transform:var(--case,none); letter-spacing:1px;
+      color:var(--dim); font-size:16px; border-bottom:1px solid var(--border);
+      padding-bottom:4px; margin:22px 0 14px;
+    }
+    .section-title .count { color:var(--bright); }
+    .section-title:first-of-type { margin-top:0; }
+
+    .b-grid { display:grid; grid-template-columns:repeat(auto-fill, minmax(340px, 1fr)); gap:14px; }
+
+    .epic-group { border:1px solid var(--row-border-soft); margin-bottom:10px; }
+    .epic-group > summary {
+      cursor:pointer; padding:9px 14px; color:var(--dim); font-size:15px; letter-spacing:0.5px;
+      display:flex; align-items:center; gap:10px; list-style:none; user-select:none;
+    }
+    .epic-group > summary::-webkit-details-marker { display:none; }
+    .epic-group > summary::before { content:'▸'; color:var(--dim-faint); }
+    .epic-group[open] > summary::before { content:'▾'; }
+    .epic-group > summary:hover { color:var(--bright); background:var(--hover-bg); }
+    .epic-group > summary .epic-title { color:var(--text); }
+    .epic-group > summary .epic-key { color:var(--bright); }
+    .epic-group > summary .count {
+      margin-left:auto; color:var(--dim-faint); font-size:13px; border:1px solid var(--row-border-soft);
+      padding:0 7px;
+    }
+    .epic-group > .b-grid { padding:12px 14px 14px; }
+
+    .b-card {
+      border:1px solid var(--border); background:var(--panel); padding:14px 16px;
+      display:flex; flex-direction:column; gap:8px;
+    }
+    .b-card.is-next { opacity:0.72; }
+    .b-card:hover { border-color:var(--bright); }
+
+    .b-top { display:flex; align-items:center; gap:8px; flex-wrap:wrap; }
+    .b-key { color:var(--bright); text-decoration:none; font-family:var(--font-display); letter-spacing:0.5px; font-size:15px; }
+    .b-key:hover { text-decoration:underline; }
+    .b-badge {
+      font-size:11px; letter-spacing:0.5px; padding:1px 7px; border:1px solid var(--border);
+      color:var(--dim); text-transform:var(--case,uppercase); white-space:nowrap;
+    }
+    .b-badge.type-Bug     { border-color:var(--red);    color:var(--red); }
+    .b-badge.type-Story   { border-color:var(--blue);   color:var(--blue); }
+    .b-badge.type-Task    { border-color:var(--green);  color:var(--green); }
+    .b-badge.priority-High, .b-badge.priority-Highest, .b-badge.priority-Critical { border-color:var(--red); color:var(--red); }
+    .b-badge.priority-Medium { border-color:var(--yellow); color:var(--yellow); }
+    .b-badge.points { color:var(--bright); border-color:var(--dim-faint); margin-left:auto; }
+
+    .b-summary { font-size:17px; color:var(--text); }
+
+    .b-epic { font-size:13px; color:var(--dim); }
+    .b-epic a { color:inherit; }
+
+    .b-desc {
+      font-size:14px; color:var(--dim); border-left:2px solid var(--row-border-soft);
+      padding-left:8px; white-space:pre-wrap; max-height:6.5em; overflow:hidden;
+    }
+    .b-desc.empty { font-style:italic; color:var(--dim-faint); border-left-color:transparent; padding-left:0; }
+
+    .b-blocked {
+      font-size:13px; color:var(--red); display:flex; flex-wrap:wrap; gap:6px; align-items:center;
+    }
+    .b-blocked a { color:var(--red); text-decoration:underline; }
+
+    .b-labels { display:flex; flex-wrap:wrap; gap:5px; }
+    .b-label { font-size:11px; color:var(--dim-faint); border:1px solid var(--row-border-soft); padding:1px 6px; }
+
+    .empty { color:var(--dim); font-size:15px; max-width:680px; }
+    .error { color:var(--red); font-size:15px; }
+  </style>
+  <script src="theme.js"></script>
+</head>
+<body>
+
+<header>
+  <h1>🗒 BACKLOG</h1>
+  <nav class="page-nav">
+    <a href="index.html">◆ DASHBOARD</a>
+    <a href="time.html">⏱ TIMESHEET</a>
+    <a href="worklog.html">💰 WORKLOG</a>
+    <a href="leave.html">🌴 FERIE</a>
+    <a href="jenkins.html">🔧 JENKINS</a>
+    <a href="copilot.html">🤖 COPILOT <span id="nav-copilot-total">–</span></a>
+    <a href="backlog.html" class="active">🗒 BACKLOG</a>
+  </nav>
+  <input id="filter-input" type="text" placeholder="filter key, summary, epic, label…" oninput="renderAll()">
+  <button id="reload-btn" onclick="load()">⟳ RELOAD</button>
+  <span id="updated"></span>
+</header>
+
+<div id="content">Loading…</div>
+
+<script>
+const el = id => document.getElementById(id);
+let JIRA = '';
+
+function esc(s) { return String(s ?? '').replace(/[&<>"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c])); }
+
+function issueUrl(key) { return JIRA ? `${JIRA}/browse/${esc(key)}` : '#'; }
+
+function card(issue) {
+  const badges = [
+    `<span class="b-badge type-${esc(issue.type)}">${esc(issue.type || '?')}</span>`,
+    issue.priority ? `<span class="b-badge priority-${esc(issue.priority)}">${esc(issue.priority)}</span>` : '',
+    issue.story_points != null ? `<span class="b-badge points">${esc(issue.story_points)} pt</span>` : '',
+  ].join('');
+
+  const epic = issue.epic
+    ? `<div class="b-epic">Epic: <a href="${issueUrl(issue.epic.key)}" target="_blank" rel="noopener">${esc(issue.epic.key)}${issue.epic.summary ? ' — ' + esc(issue.epic.summary) : ''}</a></div>`
+    : '';
+
+  const desc = issue.description
+    ? `<div class="b-desc">${esc(issue.description)}</div>`
+    : `<div class="b-desc empty">No description</div>`;
+
+  const blocked = (issue.blocked_by || []).length
+    ? `<div class="b-blocked">⛔ blocked by ${issue.blocked_by.map(b =>
+        `<a href="${issueUrl(b.key)}" target="_blank" rel="noopener">${esc(b.key)}</a> (${esc(b.status)})`).join(', ')}</div>`
+    : '';
+
+  const labels = (issue.labels || []).length
+    ? `<div class="b-labels">${issue.labels.map(l => `<span class="b-label">${esc(l)}</span>`).join('')}</div>`
+    : '';
+
+  return `
+    <div class="b-card${issue.sprint_type === 'next' ? ' is-next' : ''}">
+      <div class="b-top">
+        <a class="b-key" href="${issueUrl(issue.key)}" target="_blank" rel="noopener">${esc(issue.key)}</a>
+        ${badges}
+      </div>
+      <div class="b-summary">${esc(issue.summary)}</div>
+      ${epic}
+      ${desc}
+      ${blocked}
+      ${labels}
+    </div>`;
+}
+
+function matches(issue, needle) {
+  if (!needle) return true;
+  const haystack = [
+    issue.key, issue.summary, issue.epic?.key, issue.epic?.summary, ...(issue.labels || []),
+  ].filter(Boolean).join(' ').toLowerCase();
+  return haystack.includes(needle);
+}
+
+function groupByEpic(issues) {
+  const groups = new Map();
+  for (const issue of issues) {
+    const gk = issue.epic?.key || '';
+    if (!groups.has(gk)) groups.set(gk, { key: issue.epic?.key || null, summary: issue.epic?.summary || '', issues: [] });
+    groups.get(gk).issues.push(issue);
+  }
+  // biggest chunks of work first; issues with no epic sink to the bottom
+  return [...groups.values()].sort((a, b) => (a.key === null) - (b.key === null) || b.issues.length - a.issues.length);
+}
+
+function epicGroup(group, forceOpen) {
+  const title = group.key
+    ? `<span class="epic-key">${esc(group.key)}</span> <span class="epic-title">${esc(group.summary)}</span>`
+    : `<span class="epic-title">No epic</span>`;
+  return `<details class="epic-group"${forceOpen ? ' open' : ''}>
+    <summary>${title}<span class="count">${group.issues.length}</span></summary>
+    <div class="b-grid">${group.issues.map(card).join('')}</div>
+  </details>`;
+}
+
+function section(title, issues, { grouped = false, filtering = false } = {}) {
+  if (!issues.length) return '';
+  const body = grouped
+    ? groupByEpic(issues).map(g => epicGroup(g, filtering)).join('')
+    : `<div class="b-grid">${issues.map(card).join('')}</div>`;
+  return `<div class="section-title">${title} <span class="count">${issues.length}</span></div>${body}`;
+}
+
+let allIssues = [];
+
+function renderAll() {
+  const needle = el('filter-input').value.trim().toLowerCase();
+  const issues = allIssues.filter(i => matches(i, needle));
+  if (!allIssues.length) {
+    el('content').innerHTML = `<div class="empty">Nothing unassigned in the current or future sprints —
+      either the backlog is empty or everything's already spoken for.</div>`;
+    return;
+  }
+  if (!issues.length) {
+    el('content').innerHTML = `<div class="empty">No issues match “${esc(el('filter-input').value)}”.</div>`;
+    return;
+  }
+  const current = issues.filter(i => i.sprint_type === 'current');
+  const next = issues.filter(i => i.sprint_type === 'next');
+  const filtering = needle.length > 0;
+  el('content').innerHTML =
+    section('CURRENT SPRINT', current) +
+    section('UP NEXT — by epic', next, { grouped: true, filtering });
+}
+
+async function load() {
+  const btn = el('reload-btn');
+  btn.classList.add('spinning');
+  btn.textContent = '⟳ LOADING…';
+  try {
+    const data = await fetch('/api/backlog', {cache: 'no-store'}).then(r => {
+      if (!r.ok) throw new Error(`HTTP ${r.status}`);
+      return r.json();
+    });
+    JIRA = data.jira_url || '';
+    allIssues = data.issues || [];
+    renderAll();
+    el('updated').textContent = 'updated just now';
+  } catch (e) {
+    el('content').innerHTML = `<div class="error">Could not load backlog — ${esc(e.message)}</div>`;
+  } finally {
+    btn.classList.remove('spinning');
+    btn.textContent = '⟳ RELOAD';
+  }
+}
+
+load();
+</script>
+<script>
+  (function () {
+    function loadCopilotNav() {
+      fetch('data/copilot.json', {cache:'no-store'}).then(r => r.json()).then(d => {
+        const el = document.getElementById('nav-copilot-total');
+        if (el) el.textContent = (d.my_month_total ?? 0).toLocaleString();
+      }).catch(() => {});
+    }
+    loadCopilotNav();
+    setInterval(loadCopilotNav, 5 * 60 * 1000);
+  })();
+</script>
+</body>
+</html>
