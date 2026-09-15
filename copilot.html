@@ -78,7 +78,24 @@
     #summary { color:var(--dim); font-size:15px; margin-bottom:16px; }
     #summary strong { color:var(--text); }
 
-    .rows { border:1px solid var(--border); max-width:900px; overflow-x:auto; }
+    #only-me-label {
+      display:flex; align-items:center; gap:6px; color:var(--dim); font-size:15px;
+      cursor:pointer; user-select:none; flex-shrink:0;
+    }
+    #only-me-label:hover { color:var(--bright); }
+
+    #my-spark {
+      display:flex; align-items:flex-end; gap:10px; margin-bottom:18px;
+      border:1px solid var(--border); background:var(--panel); padding:10px 14px;
+    }
+    #my-spark .spark-label { color:var(--dim); font-size:13px; letter-spacing:0.5px; flex-shrink:0; }
+    #my-spark svg { flex-shrink:0; overflow:visible; }
+    #my-spark .spark-bar { fill:var(--green); }
+    #my-spark .spark-bar.zero { fill:var(--dim-faint); }
+    #my-spark .spark-bar:hover { fill:var(--bright); }
+    #my-spark .spark-total { color:var(--bright); font-size:18px; font-weight:600; }
+
+    .rows { border:1px solid var(--border); overflow-x:auto; }
     table { border-collapse:collapse; width:100%; font-size:16px; white-space:nowrap; }
     th, td { padding:7px 12px; text-align:right; border-bottom:1px solid var(--row-border-soft); }
     th:first-child, td:first-child { text-align:left; }
@@ -116,11 +133,13 @@
     <a href="copilot.html" class="active">🤖 COPILOT <span id="nav-copilot-total">–</span></a>
     <a href="backlog.html">🗒 BACKLOG</a>
   </nav>
+  <label id="only-me-label"><input type="checkbox" id="only-me-toggle" onchange="onOnlyMeChange()"> only me</label>
   <button id="refresh-btn" onclick="triggerPoll()">⟳ REFRESH</button>
   <span id="updated"></span>
 </header>
 
 <div id="summary"></div>
+<div id="my-spark" hidden></div>
 <div id="content">Loading…</div>
 
 <script>
@@ -138,11 +157,43 @@ function relTime(iso) {
 function esc(s) { return String(s ?? '').replace(/[&<>"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c])); }
 function fmt(n) { return n == null ? '' : n.toLocaleString(); }
 
+const ONLY_ME_KEY = 'jiraffe-copilot-only-me';
+let lastData = null;
+
+function sparkline(dayCols, daily) {
+  const w = 6, gap = 2, h = 40;
+  const max = Math.max(1, ...daily.map(v => v || 0));
+  const bars = dayCols.map((d, i) => {
+    const v = daily[i] || 0;
+    const barH = Math.max(1, Math.round((v / max) * h));
+    const x = i * (w + gap);
+    return `<rect class="spark-bar${v === 0 ? ' zero' : ''}" x="${x}" y="${h - barH}" width="${w}" height="${barH}"><title>day ${esc(d)}: ${fmt(daily[i])}</title></rect>`;
+  }).join('');
+  const width = dayCols.length * (w + gap);
+  return `<svg width="${width}" height="${h}" viewBox="0 0 ${width} ${h}">${bars}</svg>`;
+}
+
+function renderSpark(data) {
+  const daily = data.my_daily || [];
+  const dayCols = data.day_columns || [];
+  if (!daily.length || !dayCols.length) {
+    el('my-spark').hidden = true;
+    return;
+  }
+  el('my-spark').hidden = false;
+  el('my-spark').innerHTML = `
+    <span class="spark-label">MY CREDITS<br>THIS MONTH</span>
+    ${sparkline(dayCols, daily)}
+    <span class="spark-total">${fmt(data.my_month_total)}</span>`;
+}
+
 function render(data) {
-  const users = data.users || [];
-  if (!users.length) {
+  lastData = data;
+  const allUsers = data.users || [];
+  if (!allUsers.length) {
     el('content').innerHTML = `<div class="empty">No <code>data/copilot.json</code> yet — let
       <code>scripts/poll-copilot.sh</code> run once (it fires every 4h via launchd).</div>`;
+    el('my-spark').hidden = true;
     document.title = BASE_TITLE;
     return;
   }
@@ -155,6 +206,11 @@ function render(data) {
 
   el('summary').innerHTML = `<strong>${esc(data.org || '')}</strong> — ${esc(data.month_label || '')}
     ${data.summary ? ' · ' + esc(data.summary) : ''}`;
+
+  renderSpark(data);
+
+  const onlyMe = el('only-me-toggle').checked;
+  const users = onlyMe ? allUsers.filter(u => u.user === data.my_user || u.user === 'All') : allUsers;
 
   const dayCols = data.day_columns || [];
   const header = `<tr><th>User</th><th>Month total</th>${dayCols.map(d => `<th>${esc(d)}</th>`).join('')}</tr>`;
@@ -170,6 +226,11 @@ function render(data) {
   }).join('');
 
   el('content').innerHTML = `<div class="rows"><table><thead>${header}</thead><tbody>${rows}</tbody></table></div>`;
+}
+
+function onOnlyMeChange() {
+  try { localStorage.setItem(ONLY_ME_KEY, el('only-me-toggle').checked ? '1' : '0'); } catch (e) {}
+  if (lastData) render(lastData);
 }
 
 async function load() {
@@ -202,6 +263,7 @@ async function triggerPoll() {
   }
 }
 
+try { el('only-me-toggle').checked = localStorage.getItem(ONLY_ME_KEY) === '1'; } catch (e) {}
 load();
 setInterval(load, 5 * 60 * 1000);   // poller runs every ~4h; this just catches up after a manual run
 </script>
