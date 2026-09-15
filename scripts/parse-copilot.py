@@ -44,16 +44,21 @@ if header is None:
     sys.exit(1)
 
 cols = parse_row(header)
-day_cols = cols[2:]
+# Parse by column name, not position — copilot-leaderboard has reordered this
+# table before (User/Total/days -> Total/days/User) and will again.
+user_idx = cols.index('User')
+total_idx = next(i for i, c in enumerate(cols) if 'total' in c.lower())
+day_idxs = [i for i in range(len(cols)) if i not in (user_idx, total_idx)]
+day_cols = [cols[i] for i in day_idxs]
 
 users = []
 for r in rows:
     cells = parse_row(r)
-    user = cells[0].strip('*').strip()
+    user = cells[user_idx].strip('*').strip()
     if not user:
         continue
-    month_total = to_int(cells[1]) or 0
-    daily = [to_int(c) for c in cells[2:2 + len(day_cols)]]
+    month_total = to_int(cells[total_idx]) or 0
+    daily = [to_int(cells[i]) if i < len(cells) else None for i in day_idxs]
     users.append({'user': user, 'month_total': month_total, 'daily': daily})
 
 summary = ''
