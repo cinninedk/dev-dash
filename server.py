@@ -1313,12 +1313,50 @@ class _LocalOnlyServer(http.server.ThreadingHTTPServer):
         return client_address[0] in ("127.0.0.1", "::1", "::ffff:127.0.0.1")
 
 
+def _restart_on_code_change(interval: float = 2.0) -> None:
+    """Re-exec when server.py changes on disk, so the long-running launchd
+    instance never keeps serving stale code. An edit that doesn't compile is
+    skipped (old code keeps running) instead of taking the dashboard down."""
+    import threading
+    import time
+    path = pathlib.Path(__file__).resolve()
+    seen = path.stat().st_mtime
+
+    def loop():
+        nonlocal seen
+        while True:
+            time.sleep(interval)
+            try:
+                mtime = path.stat().st_mtime
+                if mtime == seen:
+                    continue
+                seen = mtime
+                compile(path.read_text(), str(path), "exec")
+                # Compiling isn't enough: an edit can parse and still blow up at
+                # import time, which would leave launchd crash-looping. Load it
+                # in a child first (run_name keeps the __main__ block, and the
+                # port bind, out of it).
+                probe = subprocess.run(
+                    [sys.executable, "-c", "import runpy, sys; runpy.run_path(sys.argv[1], run_name='probe')", str(path)],
+                    capture_output=True, text=True, timeout=30)
+                if probe.returncode:
+                    raise ValueError((probe.stderr.strip().splitlines() or [f"exit {probe.returncode}"])[-1])
+            except (OSError, SyntaxError, ValueError, subprocess.SubprocessError) as e:
+                print(f"server.py changed but can't load — keeping old code: {e}", flush=True)
+                continue
+            print("server.py changed — restarting", flush=True)
+            os.execv(sys.executable, [sys.executable, str(path), *sys.argv[1:]])
+
+    threading.Thread(target=loop, daemon=True).start()
+
+
 if __name__ == "__main__":
     os.chdir(ROOT)
     DATA_DIR.mkdir(exist_ok=True)
     if TEST_MODE:
         print(f"TEST MODE — data from: {DATA_DIR}", flush=True)
     _migrate_timetrack()
+    _restart_on_code_change()
     with _LocalOnlyServer(("", PORT), Handler) as srv:
         print(f"dashboard server listening on :{PORT}", flush=True)
         srv.serve_forever()
