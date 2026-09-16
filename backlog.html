@@ -39,9 +39,7 @@
         radial-gradient(circle at 90% 75%, rgba(120,86,48,0.16) 0 1.5px, transparent 2px);
       background-size:23px 23px,17px 17px,29px 29px,19px 19px,13px 13px;
     }
-    [data-theme="board"] .b-card { transform:rotate(-0.4deg); }
-    [data-theme="board"] .b-card:nth-child(3n) { transform:rotate(0.5deg); }
-    [data-theme="board"] .b-card:nth-child(5n) { transform:rotate(-0.7deg); }
+    [data-theme="board"] #filter-bar { background:#c2a173; }
 
     * { box-sizing:border-box; margin:0; padding:0; }
     body {
@@ -59,7 +57,7 @@
       border:var(--frame-w,0px) solid var(--frame-c,transparent);
     }
 
-    header { margin-bottom:18px; display:flex; align-items:baseline; gap:18px; flex-wrap:wrap; }
+    header { margin-bottom:10px; display:flex; align-items:baseline; gap:18px; flex-wrap:wrap; }
     h1 { color:var(--bright); font-size:28px; letter-spacing:2px; font-family:var(--font-display); text-transform:var(--case,none); min-width:320px; flex-shrink:0; }
     #updated { color:var(--dim-faint); font-size:14px; }
     #reload-btn {
@@ -68,85 +66,198 @@
     }
     #reload-btn:hover { border-color:var(--bright); color:var(--bright); }
     #reload-btn.spinning { color:var(--dim-faint); cursor:wait; }
-    #filter-input {
-      background:var(--panel); border:1px solid var(--border); color:var(--text); font-family:inherit;
-      font-size:15px; padding:4px 10px; min-width:240px; flex:0 1 260px;
-    }
-    #filter-input:focus { outline:none; border-color:var(--bright); }
-    #filter-input::placeholder { color:var(--dim-faint); }
 
     .page-nav { display:flex; gap:4px; flex-wrap:wrap; align-items:center; flex-shrink:0; }
     .page-nav a { color:var(--dim); text-decoration:none; font-size:15px; letter-spacing:1px; padding:4px 10px; border:1px solid transparent; }
     .page-nav a:hover { color:var(--bright); border-color:var(--border); }
     .page-nav a.active { color:var(--bright); border-color:var(--border); background:var(--sel-bg); }
 
-    .section-title {
-      font-family:var(--font-display); text-transform:var(--case,none); letter-spacing:1px;
-      color:var(--dim); font-size:16px; border-bottom:1px solid var(--border);
-      padding-bottom:4px; margin:22px 0 14px;
+    /* ── sticky filter bar: text filter + epic chips ── */
+    #filter-bar {
+      /* top follows the theme's CRT frame, or board/c64 paint over the bar */
+      position:sticky; top:var(--frame-w, 0px); z-index:50; background:var(--bg);
+      display:flex; align-items:flex-start; gap:8px; flex-wrap:nowrap;
+      padding:8px 0; margin-bottom:14px; border-bottom:1px solid var(--border);
     }
-    .section-title .count { color:var(--bright); }
-    .section-title:first-of-type { margin-top:0; }
-
-    .b-grid { display:grid; grid-template-columns:repeat(auto-fill, minmax(340px, 1fr)); gap:14px; }
-
-    .epic-group { border:1px solid var(--row-border-soft); margin-bottom:10px; }
-    .epic-group > summary {
-      cursor:pointer; padding:9px 14px; color:var(--dim); font-size:15px; letter-spacing:0.5px;
-      display:flex; align-items:center; gap:10px; list-style:none; user-select:none;
+    #filter-input {
+      flex:0 0 260px; background:var(--panel); border:1px solid var(--border); color:var(--text);
+      font-family:inherit; font-size:15px; padding:4px 10px;
     }
-    .epic-group > summary::-webkit-details-marker { display:none; }
-    .epic-group > summary::before { content:'▸'; color:var(--dim-faint); }
-    .epic-group[open] > summary::before { content:'▾'; }
-    .epic-group > summary:hover { color:var(--bright); background:var(--hover-bg); }
-    .epic-group > summary .epic-title { color:var(--text); }
-    .epic-group > summary .epic-key { color:var(--bright); }
-    .epic-group > summary .count {
-      margin-left:auto; color:var(--dim-faint); font-size:13px; border:1px solid var(--row-border-soft);
-      padding:0 7px;
+    #filter-input:focus { outline:none; border-color:var(--bright); }
+    #filter-input::placeholder { color:var(--dim-faint); }
+    #epic-clear {
+      flex-shrink:0; font:inherit; font-size:13px; cursor:pointer; padding:2px 10px;
+      color:var(--bright); background:var(--sel-bg); border:1px solid var(--bright);
+      max-width:260px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;
     }
-    .epic-group > .b-grid { padding:12px 14px 14px; }
-
-    .b-card {
-      border:1px solid var(--border); background:var(--panel); padding:14px 16px;
-      display:flex; flex-direction:column; gap:8px;
+    #epic-clear:hover { color:var(--red); border-color:var(--red); }
+    #epic-bar {
+      /* wraps to ~2 rows and scrolls vertically: a single scrolling strip hides
+         most of the epics and a plain mouse wheel can't reach them */
+      flex:1 1 auto; min-width:0; display:flex; gap:6px; flex-wrap:wrap;
+      max-height:64px; overflow:hidden auto; scrollbar-width:thin;
     }
-    .b-card.is-next { opacity:0.72; }
-    .b-card:hover { border-color:var(--bright); }
+    .epic-chip {
+      flex-shrink:0; font:inherit; font-size:13px; padding:2px 10px; cursor:pointer; white-space:nowrap;
+      color:var(--text); border:1px solid var(--epic, var(--border));
+      background:color-mix(in srgb, var(--epic, var(--border)) 16%, transparent);
+    }
+    .epic-chip .n { color:var(--dim); font-size:12px; margin-left:4px; }
+    .epic-chip:hover { border-color:var(--bright); }
+    .epic-chip.active { color:var(--bright); box-shadow:inset 0 0 0 1px var(--bright); background:color-mix(in srgb, var(--epic, var(--bright)) 38%, transparent); }
+    .epic-chip.active .n { color:inherit; }  /* --dim on the active tint is unreadable on c64/board/paper */
 
-    .b-top { display:flex; align-items:center; gap:8px; flex-wrap:wrap; }
-    .b-key { color:var(--bright); text-decoration:none; font-family:var(--font-display); letter-spacing:0.5px; font-size:15px; }
+    /* ── sprint sections ── */
+    .bl-section { margin-bottom:22px; }
+    .bl-section > summary {
+      list-style:none; cursor:pointer; user-select:none;
+      display:flex; align-items:baseline; gap:12px; flex-wrap:wrap;
+      padding:4px 0 6px; border-bottom:1px solid var(--border);
+    }
+    .bl-section > summary::-webkit-details-marker { display:none; }
+    .bl-section > summary::before { content:'▾'; color:var(--dim); width:12px; }
+    .bl-section:not([open]) > summary::before { content:'▸'; }
+    .sec-title { font-family:var(--font-display); text-transform:var(--case,none); color:var(--bright); font-size:19px; letter-spacing:1px; }
+    .sec-badge { font-size:11px; padding:0 6px; border:1px solid var(--green); color:var(--green); letter-spacing:1px; align-self:center; }
+    .sec-dates, .sec-count, .sec-points { color:var(--dim); font-size:14px; }
+    .sec-count { color:var(--text); }
+    .sec-goal { color:var(--dim); font-size:14px; padding:6px 0 8px 24px; }
+    .sec-group-title {
+      color:var(--dim); font-size:13px; letter-spacing:1px; padding:10px 12px 4px;
+      border-bottom:1px dashed var(--row-border-soft); background:var(--bg);
+    }
+    .sec-group-title .n { color:var(--text); margin-left:6px; }
+    .sec-empty { color:var(--dim); font-style:italic; font-size:14px; padding:10px 12px; }
+    .b-list { border:1px solid var(--border); border-top:none; background:var(--panel); }
+
+    /* ── one-line issue rows ── */
+    .issue-row { border-bottom:1px solid var(--row-border-soft); }
+    .issue-row:last-child { border-bottom:none; }
+    .issue-row > summary {
+      cursor:pointer; list-style:none; padding:7px 12px;
+      display:flex; align-items:center; gap:8px; flex-wrap:nowrap;
+    }
+    .issue-row > summary::-webkit-details-marker { display:none; }
+    .issue-row > summary::before { content:'▸'; color:var(--dim-faint); flex-shrink:0; width:10px; }
+    .issue-row[open] > summary::before { content:'▾'; color:var(--bright); }
+    .issue-row > summary:hover { background:var(--hover-bg); }
+    .issue-row[open] > summary { background:var(--sel-bg); }
+
+    .b-key { color:var(--bright); text-decoration:none; font-family:var(--font-display); letter-spacing:0.5px; font-size:15px; flex-shrink:0; }
     .b-key:hover { text-decoration:underline; }
     .b-badge {
       font-size:11px; letter-spacing:0.5px; padding:1px 7px; border:1px solid var(--border);
-      color:var(--dim); text-transform:var(--case,uppercase); white-space:nowrap;
+      color:var(--dim); text-transform:var(--case,uppercase); white-space:nowrap; flex-shrink:0;
     }
     .b-badge.type-Bug     { border-color:var(--red);    color:var(--red); }
     .b-badge.type-Story   { border-color:var(--blue);   color:var(--blue); }
-    .b-badge.type-Task    { border-color:var(--green);  color:var(--green); }
-    .b-badge.priority-High, .b-badge.priority-Highest, .b-badge.priority-Critical { border-color:var(--red); color:var(--red); }
-    .b-badge.priority-Medium { border-color:var(--yellow); color:var(--yellow); }
-    .b-badge.points { color:var(--bright); border-color:var(--dim-faint); margin-left:auto; }
-
-    .b-summary { font-size:17px; color:var(--text); }
-
-    .b-epic { font-size:13px; color:var(--dim); }
-    .b-epic a { color:inherit; }
-
-    .b-desc {
-      font-size:14px; color:var(--dim); border-left:2px solid var(--row-border-soft);
-      padding-left:8px; white-space:pre-wrap; max-height:6.5em; overflow:hidden;
+    .b-badge.type-Task, .b-badge.type-Subtask { border-color:var(--green); color:var(--green); }
+    .b-badge.points { color:var(--bright); border-color:var(--dim); }
+    .row-summary {
+      flex:1 1 14em; min-width:6em; color:var(--text); font-size:16px;
+      white-space:nowrap; overflow:hidden; text-overflow:ellipsis;
     }
-    .b-desc.empty { font-style:italic; color:var(--dim-faint); border-left-color:transparent; padding-left:0; }
-
-    .b-blocked {
-      font-size:13px; color:var(--red); display:flex; flex-wrap:wrap; gap:6px; align-items:center;
+    .row-flags { flex-shrink:0; display:inline-flex; gap:8px; color:var(--dim); font-size:13px; white-space:nowrap; }
+    .row-flags .blocked { color:var(--red); }
+    .row-labels { flex:0 4 auto; min-width:0; display:inline-flex; gap:4px; overflow:hidden; }
+    .b-label {
+      /* shrinks with an ellipsis rather than being clipped mid-word by .row-labels */
+      flex-shrink:1; min-width:2em; overflow:hidden; text-overflow:ellipsis;
+      font-size:12px; color:var(--text); background:var(--sel-bg);
+      border:1px solid var(--dim); padding:0 6px; white-space:nowrap;
     }
-    .b-blocked a { color:var(--red); text-decoration:underline; }
+    .d-meta .b-label { display:inline-block; max-width:100%; white-space:normal; overflow-wrap:anywhere; vertical-align:top; }
+    .row-epic {
+      flex:0 1 auto; min-width:3em; max-width:17em; font:inherit; font-size:12px; padding:1px 8px; cursor:pointer;
+      color:var(--text); border:1px solid var(--epic, var(--border));
+      background:color-mix(in srgb, var(--epic, var(--border)) 18%, transparent);
+      white-space:nowrap; overflow:hidden; text-overflow:ellipsis;
+    }
+    .row-epic:hover { color:var(--bright); border-color:var(--bright); }
+    .row-assignee {
+      flex:0 0 11em; text-align:right; color:var(--text); font-size:13px;
+      white-space:nowrap; overflow:hidden; text-overflow:ellipsis;
+    }
+    .row-assignee.mine { color:var(--green); }
+    .row-assignee.none { color:var(--dim); font-style:italic; }
 
-    .b-labels { display:flex; flex-wrap:wrap; gap:5px; }
-    .b-label { font-size:11px; color:var(--dim-faint); border:1px solid var(--row-border-soft); padding:1px 6px; }
+    /* ── expanded detail ── */
+    .row-detail { padding:12px 18px 18px 30px; border-top:1px dashed var(--row-border-soft); display:flex; flex-direction:column; gap:16px; }
+    .d-loading { color:var(--dim); font-size:14px; }
+    .d-error { color:var(--red); font-size:14px; }
+    .d-actions { display:flex; gap:8px; flex-wrap:wrap; }
+    .d-btn {
+      background:none; border:1px solid var(--border); color:var(--text); font:inherit; font-size:13px;
+      padding:2px 10px; cursor:pointer; text-decoration:none; white-space:nowrap;
+    }
+    .d-btn:hover { border-color:var(--bright); color:var(--bright); }
+    .d-meta { display:grid; grid-template-columns:repeat(auto-fill, minmax(250px, 1fr)); gap:6px 22px; font-size:14px; }
+    .d-meta > div { display:flex; gap:10px; min-width:0; align-items:baseline; }
+    .d-meta dt { color:var(--dim); flex-shrink:0; min-width:7.5em; }
+    .d-meta dd { color:var(--text); min-width:0; overflow-wrap:anywhere; }
+    .d-meta a { color:var(--blue); }
+    .d-inline-btn { background:none; border:1px solid var(--border); color:var(--dim); font:inherit; font-size:11px; padding:0 6px; cursor:pointer; margin-left:6px; }
+    .d-inline-btn:hover { color:var(--bright); border-color:var(--bright); }
+    .status-badge { font-size:12px; padding:0 8px; border:1px solid var(--border); letter-spacing:0.5px; text-transform:uppercase; color:var(--text); }
+    .status-badge.cat-new { color:var(--blue); border-color:var(--blue); }
+    .status-badge.cat-indeterminate { color:var(--yellow); border-color:var(--yellow); }
+    .status-badge.cat-done { color:var(--green); border-color:var(--green); }
+    .d-block h4 {
+      font-family:var(--font-display); text-transform:var(--case,none); font-weight:normal;
+      color:var(--dim); font-size:13px; letter-spacing:1px; margin-bottom:6px;
+      border-bottom:1px solid var(--row-border-soft); padding-bottom:2px;
+    }
+    .d-list { list-style:none; display:flex; flex-direction:column; gap:3px; font-size:14px; }
+    .d-list li { display:flex; gap:10px; align-items:baseline; min-width:0; }
+    .d-list .rel { color:var(--dim); flex-shrink:0; min-width:10em; }
+    .d-list a { color:var(--bright); flex-shrink:0; }
+    .d-list .sum { color:var(--text); min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
 
+    .jira-html { font-size:15px; color:var(--text); line-height:1.55; overflow-wrap:anywhere; }
+    .jira-html > :last-child { margin-bottom:0; }
+    .jira-html p { margin:0 0 8px; }
+    .jira-html ul, .jira-html ol { margin:0 0 8px 1.5em; }
+    .jira-html li { margin:2px 0; }
+    .jira-html a { color:var(--blue); }
+    .jira-html strong, .jira-html b { color:var(--bright); }
+    .img-fallback { display:inline-block; font-size:13px; color:var(--blue); border:1px dashed var(--border); padding:2px 8px; margin:2px 0; }
+    .row-parent { color:var(--dim); margin-right:6px; }
+    .row-flags .flagged { color:var(--red); }
+    #board-link { color:var(--dim); font-size:14px; text-decoration:none; }
+    #board-link:hover { color:var(--bright); }
+    .jira-html h1, .jira-html h2, .jira-html h3, .jira-html h4, .jira-html h5, .jira-html h6 { font-size:16px; color:var(--bright); margin:12px 0 4px; }
+    .jira-html img { max-width:100%; max-height:460px; height:auto; vertical-align:middle; }
+    .jira-html img[src*="/images/icons/"] { max-height:1.2em; }
+    .jira-html pre, .jira-html .code, .jira-html .preformatted, .jira-html .panel {
+      background:var(--sel-bg); border:1px solid var(--row-border-soft); margin:6px 0 8px;
+    }
+    .jira-html pre { padding:8px 10px; overflow-x:auto; white-space:pre; font-size:13px; line-height:1.4; }
+    .jira-html .code pre, .jira-html .preformatted pre, .jira-html .panel pre { border:none; margin:0; background:none; }
+    .jira-html .panel { padding:6px 10px; }
+    .jira-html .panelHeader { color:var(--bright); border-bottom:1px solid var(--row-border-soft); margin-bottom:4px; }
+    .jira-html table { border-collapse:collapse; margin:6px 0 8px; font-size:14px; }
+    .jira-html th, .jira-html td { border:1px solid var(--row-border-soft); padding:3px 8px; text-align:left; vertical-align:top; }
+    .jira-html th { color:var(--bright); }
+    .jira-html blockquote { border-left:3px solid var(--border); padding-left:10px; color:var(--dim); margin:6px 0; }
+    .jira-html hr { border:none; border-top:1px solid var(--row-border-soft); margin:10px 0; }
+    .jira-html code, .jira-html tt { font-size:0.92em; background:var(--sel-bg); padding:0 3px; }
+    .d-empty { color:var(--dim); font-style:italic; font-size:14px; }
+
+    .att-grid { display:flex; flex-wrap:wrap; gap:10px; }
+    .att-thumb { display:block; border:1px solid var(--border); padding:4px; text-decoration:none; background:var(--bg); }
+    .att-thumb:hover { border-color:var(--bright); }
+    .att-thumb img { display:block; max-width:200px; max-height:150px; }
+    .att-thumb span { display:block; max-width:200px; font-size:12px; color:var(--dim); white-space:nowrap; overflow:hidden; text-overflow:ellipsis; margin-top:3px; }
+    .att-files { list-style:none; font-size:14px; margin-top:8px; }
+    .att-files a { color:var(--blue); }
+    .att-files .meta { color:var(--dim); font-size:12px; margin-left:8px; }
+
+    .comment { border-left:2px solid var(--border); padding:4px 0 4px 12px; margin-bottom:12px; }
+    .comment:last-child { margin-bottom:0; }
+    .comment-head { font-size:13px; color:var(--dim); margin-bottom:4px; }
+    .comment-head b { color:var(--text); font-weight:600; }
+
+    .warn { color:var(--yellow); font-size:14px; margin-bottom:10px; }
     .empty { color:var(--dim); font-size:15px; max-width:680px; }
     .error { color:var(--red); font-size:15px; }
   </style>
@@ -165,131 +276,404 @@
     <a href="copilot.html">🤖 COPILOT <span id="nav-copilot-total">–</span></a>
     <a href="backlog.html" class="active">🗒 BACKLOG</a>
   </nav>
-  <input id="filter-input" type="text" placeholder="filter key, summary, epic, label…" oninput="renderAll()">
   <button id="reload-btn" onclick="load()">⟳ RELOAD</button>
   <span id="updated"></span>
 </header>
 
-<div id="content">Loading…</div>
+<div id="filter-bar">
+  <input id="filter-input" type="search" placeholder="filter key, summary, epic, label, assignee…" oninput="renderAll()">
+  <button id="epic-clear" hidden onclick="setEpicFilter(null)" title="Clear the epic filter"></button>
+  <nav id="epic-bar"></nav>
+</div>
+
+<div id="warnings"></div>
+<div id="content">Loading backlog from Jira…</div>
 
 <script>
 const el = id => document.getElementById(id);
-let JIRA = '';
+let JIRA = '', ME = '', DATA = null, EPICS = {};
+const detailCache = new Map();   // issue key -> /api/issue-detail response
+const inflight = new Map();      // issue key -> pending fetch promise
+const openKeys = new Set();      // rows the user has expanded (survive re-renders)
+const COLLAPSED_KEY = 'jiraffe-backlog-collapsed';
+let collapsed = new Set();
+try { collapsed = new Set(JSON.parse(localStorage.getItem(COLLAPSED_KEY) || '[]')); } catch (e) {}
 
-function esc(s) { return String(s ?? '').replace(/[&<>"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c])); }
-
-function issueUrl(key) { return JIRA ? `${JIRA}/browse/${esc(key)}` : '#'; }
-
-function card(issue) {
-  const badges = [
-    `<span class="b-badge type-${esc(issue.type)}">${esc(issue.type || '?')}</span>`,
-    issue.priority ? `<span class="b-badge priority-${esc(issue.priority)}">${esc(issue.priority)}</span>` : '',
-    issue.story_points != null ? `<span class="b-badge points">${esc(issue.story_points)} pt</span>` : '',
-  ].join('');
-
-  const epic = issue.epic
-    ? `<div class="b-epic">Epic: <a href="${issueUrl(issue.epic.key)}" target="_blank" rel="noopener">${esc(issue.epic.key)}${issue.epic.summary ? ' — ' + esc(issue.epic.summary) : ''}</a></div>`
-    : '';
-
-  const desc = issue.description
-    ? `<div class="b-desc">${esc(issue.description)}</div>`
-    : `<div class="b-desc empty">No description</div>`;
-
-  const blocked = (issue.blocked_by || []).length
-    ? `<div class="b-blocked">⛔ blocked by ${issue.blocked_by.map(b =>
-        `<a href="${issueUrl(b.key)}" target="_blank" rel="noopener">${esc(b.key)}</a> (${esc(b.status)})`).join(', ')}</div>`
-    : '';
-
-  const labels = (issue.labels || []).length
-    ? `<div class="b-labels">${issue.labels.map(l => `<span class="b-label">${esc(l)}</span>`).join('')}</div>`
-    : '';
-
-  return `
-    <div class="b-card${issue.sprint_type === 'next' ? ' is-next' : ''}">
-      <div class="b-top">
-        <a class="b-key" href="${issueUrl(issue.key)}" target="_blank" rel="noopener">${esc(issue.key)}</a>
-        ${badges}
-      </div>
-      <div class="b-summary">${esc(issue.summary)}</div>
-      ${epic}
-      ${desc}
-      ${blocked}
-      ${labels}
-    </div>`;
+function esc(s) {
+  return String(s ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 }
+function issueUrl(key) { return JIRA ? `${JIRA}/browse/${encodeURIComponent(key)}` : '#'; }
+function fmtPts(v) { return v == null ? '' : String(+v); }
+function parseJiraDate(s) { return s ? new Date(String(s).replace(/([+-]\d\d)(\d\d)$/, '$1:$2')) : null; }
+function fmtDate(s) {
+  const d = parseJiraDate(s);
+  if (!d || isNaN(d)) return '';
+  const p = n => String(n).padStart(2, '0');
+  return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())} ${p(d.getHours())}:${p(d.getMinutes())}`;
+}
+function fmtSize(b) { return b > 1048576 ? `${(b / 1048576).toFixed(1)} MB` : `${Math.max(1, Math.round(b / 1024))} KB`; }
 
-function matches(issue, needle) {
+// ── epics: names, colours, filter state (in the URL hash, so Back unselects) ──
+// Jira's Epic Colour values are ghx-label-1..14; mapped to distinct hues that
+// stay legible as a border/tint on every theme (text itself uses the theme colour).
+const PALETTE = ['#b0835a','#f79232','#d8a13a','#4a90d9','#7a93b0','#8eb021','#c0808c',
+                 '#9a7bc9','#f15c75','#2eaf9c','#5fb0e0','#e07b39','#7fbf5f','#c86bbf'];
+function epicColor(key) {
+  const m = /ghx-label-(\d+)/.exec(EPICS[key]?.color || '');
+  if (m) return PALETTE[(+m[1] - 1) % PALETTE.length];
+  let h = 0;
+  for (const c of String(key)) h = (h * 31 + c.charCodeAt(0)) >>> 0;
+  return PALETTE[h % PALETTE.length];
+}
+function epicName(key) { return EPICS[key]?.name || EPICS[key]?.summary || key; }
+function epicTitle(key) {
+  const e = EPICS[key];
+  return e ? `${key} — ${e.summary || e.name || ''}` : key;
+}
+function epicFilter() {
+  const m = /(?:^#|&)epic=([^&]*)/.exec(location.hash);
+  return m ? decodeURIComponent(m[1]) : null;
+}
+function setEpicFilter(key) {
+  if (key) location.hash = 'epic=' + encodeURIComponent(key);
+  else { history.pushState(null, '', location.pathname + location.search); renderAll(); }
+}
+function toggleEpic(ev, key) {
+  ev.preventDefault();
+  ev.stopPropagation();
+  setEpicFilter(epicFilter() === key ? null : key);
+}
+window.addEventListener('hashchange', renderAll);
+window.addEventListener('popstate', renderAll);
+
+function allIssues() { return DATA ? DATA.sections.flatMap(s => s.groups.flatMap(g => g.issues)) : []; }
+
+function matches(issue, needle, epic) {
+  if (epic === '__none__' ? issue.epic : (epic && issue.epic !== epic)) return false;
   if (!needle) return true;
-  const haystack = [
-    issue.key, issue.summary, issue.epic?.key, issue.epic?.summary, ...(issue.labels || []),
-  ].filter(Boolean).join(' ').toLowerCase();
-  return haystack.includes(needle);
+  const hay = [issue.key, issue.summary, issue.epic, issue.epic && epicName(issue.epic),
+               issue.epic && EPICS[issue.epic]?.summary, issue.assignee?.display, ...(issue.labels || [])]
+    .filter(Boolean).join(' ').toLowerCase();
+  return hay.includes(needle);
 }
 
-function groupByEpic(issues) {
-  const groups = new Map();
-  for (const issue of issues) {
-    const gk = issue.epic?.key || '';
-    if (!groups.has(gk)) groups.set(gk, { key: issue.epic?.key || null, summary: issue.epic?.summary || '', issues: [] });
-    groups.get(gk).issues.push(issue);
+function renderEpicBar() {
+  const counts = new Map();
+  let none = 0;
+  const issues = allIssues();
+  for (const i of issues) {
+    if (i.epic) counts.set(i.epic, (counts.get(i.epic) || 0) + 1); else none++;
   }
-  // biggest chunks of work first; issues with no epic sink to the bottom
-  return [...groups.values()].sort((a, b) => (a.key === null) - (b.key === null) || b.issues.length - a.issues.length);
+  const active = epicFilter();
+  const chip = (key, label, n, color, title) =>
+    `<button class="epic-chip${active === key ? ' active' : ''}" data-epic="${esc(key)}"
+      ${color ? `style="--epic:${color}"` : ''} title="${esc(title)}"
+      onclick="toggleEpic(event, this.dataset.epic)">${esc(label)}<span class="n">${n}</span></button>`;
+  const chips = [...counts.entries()]
+    .sort((a, b) => b[1] - a[1] || epicName(a[0]).localeCompare(epicName(b[0])))
+    .map(([k, n]) => chip(k, epicName(k), n, epicColor(k), epicTitle(k)));
+  el('epic-bar').innerHTML =
+    `<button class="epic-chip${active ? '' : ' active'}" onclick="setEpicFilter(null)" title="Show every epic">All<span class="n">${issues.length}</span></button>`
+    + chips.join('')
+    + (none ? chip('__none__', 'No epic', none, null, 'Issues without an epic') : '');
+  const clear = el('epic-clear');
+  clear.hidden = !active;
+  if (active) clear.textContent = `✕ ${active === '__none__' ? 'No epic' : epicName(active)}`;
+  el('epic-bar').querySelector('.epic-chip.active')?.scrollIntoView({block: 'nearest', inline: 'nearest'});
 }
 
-function epicGroup(group, forceOpen) {
-  const title = group.key
-    ? `<span class="epic-key">${esc(group.key)}</span> <span class="epic-title">${esc(group.summary)}</span>`
-    : `<span class="epic-title">No epic</span>`;
-  return `<details class="epic-group"${forceOpen ? ' open' : ''}>
-    <summary>${title}<span class="count">${group.issues.length}</span></summary>
-    <div class="b-grid">${group.issues.map(card).join('')}</div>
-  </details>`;
+// ── rows ──
+function person(p) { return p ? esc(p.display || p.name) : '<span class="d-empty">Unassigned</span>'; }
+
+function issueRow(issue) {
+  const typeCls = String(issue.type || '').replace(/\W/g, '');
+  const openBlockers = (issue.blocked_by || []).filter(b => !b.done);
+  const flags = [
+    issue.flagged ? '<span class="flagged" title="Flagged — impediment">🚩</span>' : '',
+    openBlockers.length ? `<span class="blocked" title="Blocked by ${esc(openBlockers.map(b => `${b.key} (${b.status})`).join(', '))}">⛔</span>` : '',
+    issue.comments ? `<span title="${issue.comments} comment${issue.comments === 1 ? '' : 's'}">💬${issue.comments}</span>` : '',
+    issue.attachments ? `<span title="${issue.attachments} attachment${issue.attachments === 1 ? '' : 's'}">📎${issue.attachments}</span>` : '',
+  ].join('');
+  const labels = (issue.labels || []).map(l => `<span class="b-label" title="${esc(l)}">${esc(l)}</span>`).join('');
+  const epic = issue.epic
+    ? `<button class="row-epic" style="--epic:${epicColor(issue.epic)}" data-epic="${esc(issue.epic)}"
+        title="Filter by epic: ${esc(epicTitle(issue.epic))}" onclick="toggleEpic(event, this.dataset.epic)">${esc(epicName(issue.epic))}</button>`
+    : '';
+  const a = issue.assignee;
+  const mine = a && a.name === ME;
+  const assignee = `<span class="row-assignee${mine ? ' mine' : a ? '' : ' none'}" title="${a ? esc(a.display) : 'Unassigned'}">${a ? esc(a.display) : 'unassigned'}</span>`;
+  const isOpen = openKeys.has(issue.key);
+  return `
+    <details class="issue-row" data-key="${esc(issue.key)}" ontoggle="onRowToggle(this)"${isOpen ? ' open' : ''}>
+      <summary>
+        <a class="b-key" href="${issueUrl(issue.key)}" target="_blank" rel="noopener" onclick="event.stopPropagation()">${esc(issue.key)}</a>
+        <span class="b-badge type-${typeCls}">${esc(issue.type || '?')}</span>
+        ${issue.priority ? `<span class="b-badge" title="Priority">${esc(issue.priority)}</span>` : ''}
+        ${issue.story_points != null ? `<span class="b-badge points">${fmtPts(issue.story_points)} pt</span>` : ''}
+        <span class="row-summary" title="${esc(issue.parent ? `${issue.parent.key} ${issue.parent.summary} › ${issue.summary}` : issue.summary)}">${issue.parent ? `<span class="row-parent">${esc(issue.parent.key)} ›</span>` : ''}${esc(issue.summary)}</span>
+        ${flags ? `<span class="row-flags">${flags}</span>` : ''}
+        ${labels ? `<span class="row-labels">${labels}</span>` : ''}
+        ${epic}
+        ${assignee}
+      </summary>
+      <div class="row-detail">${isOpen && detailCache.has(issue.key) ? renderDetail(detailCache.get(issue.key)) : '<div class="d-loading">Loading details from Jira…</div>'}</div>
+    </details>`;
 }
 
-function section(title, issues, { grouped = false, filtering = false } = {}) {
-  if (!issues.length) return '';
-  const body = grouped
-    ? groupByEpic(issues).map(g => epicGroup(g, filtering)).join('')
-    : `<div class="b-grid">${issues.map(card).join('')}</div>`;
-  return `<div class="section-title">${title} <span class="count">${issues.length}</span></div>${body}`;
+// ── sections ──
+function renderSection(s, needle, epic, filtering) {
+  const total = s.groups.reduce((n, g) => n + g.issues.length, 0);
+  const groups = s.groups.map(g => ({title: g.title, total: g.issues.length, shown: g.issues.filter(i => matches(i, needle, epic))}));
+  const shown = groups.reduce((n, g) => n + g.shown.length, 0);
+  const pts = groups.flatMap(g => g.shown).reduce((n, i) => n + (+i.story_points || 0), 0);
+  const count = filtering ? `${shown} of ${total} issues` : `${total} issue${total === 1 ? '' : 's'}`;
+  const dates = s.start ? `${s.start} → ${s.end || '?'}` : '';
+  const multi = s.groups.length > 1;
+  const body = shown
+    ? groups.filter(g => g.shown.length).map(g =>
+        (multi && g.title ? `<div class="sec-group-title">${esc(g.title)}<span class="n">${filtering ? `${g.shown.length} of ${g.total}` : g.total}</span></div>` : '')
+        + g.shown.map(issueRow).join('')).join('')
+    : `<div class="sec-empty">${total ? 'No issues match the current filter.' : 'Nothing here that’s unassigned or yours.'}</div>`;
+  return `
+    <details class="bl-section kind-${esc(s.kind)}" data-section="${esc(s.id)}" ontoggle="onSectionToggle(this)"${collapsed.has(s.id) ? '' : ' open'}>
+      <summary>
+        <span class="sec-title">${esc(s.title)}</span>
+        ${s.kind === 'active' ? '<span class="sec-badge">ACTIVE</span>' : ''}
+        ${dates ? `<span class="sec-dates">${esc(dates)}</span>` : ''}
+        <span class="sec-count">${count}</span>
+        ${pts ? `<span class="sec-points">Σ ${fmtPts(pts)} pt</span>` : ''}
+      </summary>
+      ${s.goal ? `<div class="sec-goal">${esc(s.goal)}</div>` : ''}
+      <div class="b-list">${body}</div>
+    </details>`;
 }
-
-let allIssues = [];
 
 function renderAll() {
+  if (!DATA) return;
   const needle = el('filter-input').value.trim().toLowerCase();
-  const issues = allIssues.filter(i => matches(i, needle));
-  if (!allIssues.length) {
-    el('content').innerHTML = `<div class="empty">Nothing unassigned in the current or future sprints —
-      either the backlog is empty or everything's already spoken for.</div>`;
-    return;
+  const epic = epicFilter();
+  renderEpicBar();
+  el('content').innerHTML = DATA.sections.map(s => renderSection(s, needle, epic, !!(needle || epic))).join('');
+  for (const key of openKeys) {
+    if (!detailCache.has(key)) {
+      const row = document.querySelector(`.issue-row[data-key="${CSS.escape(key)}"]`);
+      if (row) loadDetail(key);
+    }
   }
-  if (!issues.length) {
-    el('content').innerHTML = `<div class="empty">No issues match “${esc(el('filter-input').value)}”.</div>`;
-    return;
-  }
-  const current = issues.filter(i => i.sprint_type === 'current');
-  const next = issues.filter(i => i.sprint_type === 'next');
-  const filtering = needle.length > 0;
-  el('content').innerHTML =
-    section('CURRENT SPRINT', current) +
-    section('UP NEXT — by epic', next, { grouped: true, filtering });
 }
 
+function onSectionToggle(sec) {
+  if (sec.open) collapsed.delete(sec.dataset.section); else collapsed.add(sec.dataset.section);
+  try { localStorage.setItem(COLLAPSED_KEY, JSON.stringify([...collapsed])); } catch (e) {}
+}
+
+function onRowToggle(row) {
+  if (!row.isConnected) return;
+  const key = row.dataset.key;
+  if (!row.open) { openKeys.delete(key); return; }
+  openKeys.add(key);
+  if (detailCache.has(key)) row.querySelector('.row-detail').innerHTML = renderDetail(detailCache.get(key));
+  else loadDetail(key);
+}
+
+function detailBox(key) {
+  return document.querySelector(`.issue-row[data-key="${CSS.escape(key)}"] > .row-detail`);
+}
+
+async function loadDetail(key) {
+  let p = inflight.get(key);
+  if (!p) {
+    p = fetch(`/api/issue-detail?key=${encodeURIComponent(key)}`, {cache: 'no-store'})
+      .then(async r => { if (!r.ok) throw new Error((await r.text()) || `HTTP ${r.status}`); return r.json(); })
+      .finally(() => inflight.delete(key));
+    inflight.set(key, p);
+  }
+  try {
+    const d = await p;
+    detailCache.set(key, d);
+    const box = detailBox(key);
+    if (box) box.innerHTML = renderDetail(d);
+  } catch (e) {
+    const box = detailBox(key);
+    if (box) box.innerHTML = `<div class="d-error">Couldn’t load details — ${esc(e.message)}
+      <button class="d-btn" data-key="${esc(key)}" onclick="loadDetail(this.dataset.key)">retry</button></div>`;
+  }
+}
+
+// ── Jira's rendered HTML: allowlist sanitiser + image proxying ──
+// Description/comment/AC HTML comes from Jira's own wiki renderer; it is
+// still external content, so only a known-safe subset of tags/attributes
+// survives. Images on the Jira host are routed through /api/jira-file,
+// because the browser has no Jira token (and cross-site cookies aren't sent).
+const DROP_TAGS = new Set(['SCRIPT','STYLE','IFRAME','FRAME','FRAMESET','OBJECT','EMBED','APPLET','FORM','INPUT',
+  'BUTTON','TEXTAREA','SELECT','OPTION','LINK','META','BASE','NOSCRIPT','TEMPLATE','SVG','MATH','AUDIO','VIDEO',
+  'SOURCE','TRACK','CANVAS','DIALOG','PORTAL']);
+const KEEP_TAGS = new Set(['A','ABBR','B','BIG','BLOCKQUOTE','BR','CAPTION','CENTER','CITE','CODE','COL','COLGROUP',
+  'DD','DEL','DFN','DIV','DL','DT','EM','FIGCAPTION','FIGURE','H1','H2','H3','H4','H5','H6','HR','I','IMG',
+  'INS','KBD','LI','OL','P','PRE','Q','S','SAMP','SMALL','SPAN','STRIKE','STRONG','SUB','SUP','TABLE','TBODY','TD',
+  'TFOOT','TH','THEAD','TR','TT','U','UL']);
+const KEEP_ATTRS = {A: ['href', 'title'], IMG: ['src', 'alt', 'title', 'width', 'height'],
+  TD: ['colspan', 'rowspan'], TH: ['colspan', 'rowspan'], OL: ['start'], COL: ['span'], COLGROUP: ['span']};
+const PROXY_PREFIXES = ['/secure/attachment/', '/secure/thumbnail/', '/images/icons/'];
+
+function resolveUrl(raw) { try { return new URL(raw, JIRA + '/'); } catch (e) { return null; } }
+function onJira(u) { try { return u.host === new URL(JIRA).host; } catch (e) { return false; } }
+function proxied(u) { return `/api/jira-file?path=${encodeURIComponent(u.pathname + u.search)}`; }
+
+function sanitize(html) {
+  if (!html) return '';
+  const doc = new DOMParser().parseFromString(`<body>${html}</body>`, 'text/html');
+  for (const node of [...doc.body.querySelectorAll('*')]) {
+    if (!node.isConnected) continue;
+    const tag = node.tagName;
+    if (DROP_TAGS.has(tag)) { node.remove(); continue; }
+    if (!KEEP_TAGS.has(tag)) { node.replaceWith(...node.childNodes); continue; }
+    const keep = KEEP_ATTRS[tag] || [];
+    for (const a of [...node.attributes]) {
+      if (a.name !== 'class' && !keep.includes(a.name)) node.removeAttribute(a.name);
+    }
+    if (tag === 'A') {
+      const u = resolveUrl(node.getAttribute('href') || '');
+      if (!u || !['http:', 'https:', 'mailto:'].includes(u.protocol)) { node.removeAttribute('href'); continue; }
+      const imageLink = node.querySelector('img') && onJira(u) && u.pathname.startsWith('/secure/attachment/');
+      node.setAttribute('href', imageLink ? proxied(u) : u.href);
+      node.setAttribute('target', '_blank');
+      node.setAttribute('rel', 'noopener noreferrer');
+    } else if (tag === 'IMG') {
+      const u = resolveUrl(node.getAttribute('src') || '');
+      if (!u || !['http:', 'https:'].includes(u.protocol)) { node.remove(); continue; }
+      node.setAttribute('src', onJira(u) && PROXY_PREFIXES.some(p => u.pathname.startsWith(p)) ? proxied(u) : u.href);
+      node.setAttribute('data-orig', u.href);
+      node.setAttribute('loading', 'lazy');
+    }
+  }
+  return doc.body.innerHTML;
+}
+
+// Images that can't load here (Confluence-hosted ones, which we have no token
+// for, or a Jira attachment we can't read) turn into a link, not a broken icon.
+document.addEventListener('error', e => {
+  const img = e.target;
+  if (!(img instanceof HTMLImageElement) || !img.dataset.orig || !img.closest('.jira-html')) return;
+  const label = `🖼 image on ${new URL(img.dataset.orig).host} — open ↗`;
+  const wrap = img.closest('a');
+  let repl;
+  if (wrap) {
+    repl = document.createElement('span');
+  } else {
+    repl = document.createElement('a');
+    repl.href = img.dataset.orig;
+    repl.target = '_blank';
+    repl.rel = 'noopener noreferrer';
+  }
+  repl.className = 'img-fallback';
+  repl.textContent = label;
+  img.replaceWith(repl);
+}, true);
+
+// ── detail panel ──
+function renderDetail(d) {
+  const rows = [];
+  const add = (label, html) => { if (html) rows.push(`<div><dt>${label}</dt><dd>${html}</dd></div>`); };
+  add('Status', `<span class="status-badge cat-${esc(d.status_category)}">${esc(d.status)}</span>${d.resolution ? ` · ${esc(d.resolution)}` : ''}`);
+  add('Assignee', person(d.assignee));
+  add('Reporter', person(d.reporter));
+  add('Type', esc(d.type));
+  add('Priority', esc(d.priority));
+  add('Story points', d.story_points != null ? fmtPts(d.story_points) : '');
+  add('Sprint', esc((d.sprints || []).join(', ')));
+  add('Epic', d.epic ? `<a href="${issueUrl(d.epic)}" target="_blank" rel="noopener">${esc(epicTitle(d.epic))}</a>
+    <button class="d-inline-btn" data-epic="${esc(d.epic)}" onclick="toggleEpic(event, this.dataset.epic)">filter</button>` : '');
+  add('Parent', d.parent ? `<a href="${issueUrl(d.parent.key)}" target="_blank" rel="noopener">${esc(d.parent.key)}</a> ${esc(d.parent.summary)}` : '');
+  add('Components', esc((d.components || []).join(', ')));
+  add('Fix version', esc((d.fix_versions || []).join(', ')));
+  add('Affects', esc((d.affects_versions || []).join(', ')));
+  add('Labels', (d.labels || []).map(l => `<span class="b-label">${esc(l)}</span>`).join(' '));
+  add('Created', esc(fmtDate(d.created)));
+  add('Updated', esc(fmtDate(d.updated)));
+  add('Due', esc(d.duedate || ''));
+
+  const block = (title, html) => `<section class="d-block"><h4>${title}</h4>${html}</section>`;
+  const blocks = [
+    block('Description', d.description_html ? `<div class="jira-html">${sanitize(d.description_html)}</div>` : '<div class="d-empty">No description</div>'),
+    ...(d.text_fields || []).map(f => block(esc(f.name), `<div class="jira-html">${sanitize(f.html)}</div>`)),
+  ];
+  const linkLi = l => `<li><span class="rel">${esc(l.relation || '')}</span>
+    <a href="${issueUrl(l.key)}" target="_blank" rel="noopener">${esc(l.key)}</a>
+    <span class="status-badge cat-${esc(l.status_category)}">${esc(l.status)}</span>
+    <span class="sum" title="${esc(l.summary)}">${esc(l.summary)}</span></li>`;
+  if ((d.links || []).length) blocks.push(block(`Links (${d.links.length})`, `<ul class="d-list">${d.links.map(linkLi).join('')}</ul>`));
+  if ((d.subtasks || []).length) blocks.push(block(`Subtasks (${d.subtasks.length})`, `<ul class="d-list">${d.subtasks.map(s => linkLi({...s, relation: ''})).join('')}</ul>`));
+  const atts = d.attachments || [];
+  if (atts.length) {
+    const imgs = atts.filter(a => a.img);
+    const files = atts.filter(a => !a.img);
+    blocks.push(block(`Attachments (${atts.length})`,
+      (imgs.length ? `<div class="att-grid">${imgs.map(a => `<a class="att-thumb" href="${esc(a.img)}" target="_blank" rel="noopener" title="${esc(a.filename)}">
+          <img src="${esc(a.thumb || a.img)}" alt="${esc(a.filename)}" loading="lazy"><span>${esc(a.filename)}</span></a>`).join('')}</div>` : '')
+      + (files.length ? `<ul class="att-files">${files.map(a => `<li><a href="${esc(a.url)}" target="_blank" rel="noopener">${esc(a.filename)}</a>
+          <span class="meta">${fmtSize(a.size || 0)} · ${esc(a.author || '')} · ${esc(fmtDate(a.created))}</span></li>`).join('')}</ul>` : '')));
+  }
+  const comments = d.comments || [];
+  const more = d.comments_total > comments.length ? ` — showing ${comments.length} of ${d.comments_total}` : '';
+  blocks.push(block(`Comments (${d.comments_total ?? comments.length})${more}`, comments.length
+    ? comments.map(c => `<div class="comment"><div class="comment-head"><b>${esc(c.author)}</b> · ${esc(fmtDate(c.created))}${c.updated && c.updated !== c.created ? ` (edited ${esc(fmtDate(c.updated))})` : ''}</div>
+        <div class="jira-html">${sanitize(c.html)}</div></div>`).join('')
+    : '<div class="d-empty">No comments</div>'));
+
+  return `
+    <div class="d-actions">
+      <a class="d-btn" href="${issueUrl(d.key)}" target="_blank" rel="noopener">Open in Jira ↗</a>
+      <button class="d-btn" data-key="${esc(d.key)}" onclick="copyText(this, this.dataset.key)">Copy key</button>
+      <button class="d-btn" data-key="${esc(d.key)}" onclick="copyPrompt(this, this.dataset.key)" title="Copy title, acceptance criteria &amp; description as prompt text">Copy as prompt</button>
+    </div>
+    <dl class="d-meta">${rows.join('')}</dl>
+    ${blocks.join('')}`;
+}
+
+async function copyText(btn, text) {
+  const orig = btn.textContent;
+  try { await navigator.clipboard.writeText(text); btn.textContent = 'copied!'; }
+  catch (e) { btn.textContent = 'error'; }
+  setTimeout(() => { btn.textContent = orig; }, 1200);
+}
+
+async function copyPrompt(btn, key) {
+  const orig = btn.textContent;
+  btn.disabled = true;
+  btn.textContent = '…';
+  try {
+    const r = await fetch(`/api/issue-text?key=${encodeURIComponent(key)}`);
+    if (!r.ok) throw new Error(await r.text());
+    await navigator.clipboard.writeText(await r.text());
+    btn.textContent = 'copied!';
+  } catch (e) {
+    btn.textContent = 'error';
+  }
+  setTimeout(() => { btn.textContent = orig; btn.disabled = false; }, 1500);
+}
+
+// ── load ──
 async function load() {
   const btn = el('reload-btn');
   btn.classList.add('spinning');
   btn.textContent = '⟳ LOADING…';
   try {
-    const data = await fetch('/api/backlog', {cache: 'no-store'}).then(r => {
-      if (!r.ok) throw new Error(`HTTP ${r.status}`);
-      return r.json();
-    });
+    const r = await fetch('/api/backlog', {cache: 'no-store'});
+    if (!r.ok) throw new Error((await r.text()) || `HTTP ${r.status}`);
+    const data = await r.json();
+    if (!Array.isArray(data.sections)) {
+      throw new Error('the dashboard server is running older code than this page — restart it (scripts/stop.sh; scripts/start.sh)');
+    }
+    DATA = data;
     JIRA = data.jira_url || '';
-    allIssues = data.issues || [];
+    ME = data.me || '';
+    EPICS = data.epics || {};
+    detailCache.clear();
+    el('warnings').innerHTML = (data.warnings || []).map(w => `<div class="warn">⚠ ${esc(w)}</div>`).join('');
     renderAll();
-    el('updated').textContent = 'updated just now';
+    el('updated').innerHTML = 'loaded ' + fmtDate(new Date().toISOString()).slice(11)
+      + (data.board_url ? ` · <a id="board-link" href="${esc(data.board_url)}" target="_blank" rel="noopener">board in Jira ↗</a>` : '');
   } catch (e) {
     el('content').innerHTML = `<div class="error">Could not load backlog — ${esc(e.message)}</div>`;
   } finally {

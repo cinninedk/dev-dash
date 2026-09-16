@@ -6,6 +6,7 @@ to Bitbucket so the browser can fetch reviewer comments without needing
 the token directly.
 """
 import datetime
+import html
 import http.server
 import json
 import os
@@ -17,6 +18,7 @@ import urllib.error
 import urllib.parse
 import urllib.request
 import uuid
+from concurrent.futures import ThreadPoolExecutor
 
 ROOT = pathlib.Path(__file__).parent
 
@@ -240,81 +242,377 @@ def _config_var(name: str) -> str:
     return ""
 
 
-def _backlog_jql(kind: str) -> str:
-    """JQL_NEXT_CURRENT / JQL_NEXT_FUTURE from secrets/config, same filter the
-    dashboard's NEXT TASK panel already uses (unassigned, current/future sprint,
-    labels not in STIL), with $JIRA_PROJECTS substituted in."""
-    jql = _config_var(f"JQL_NEXT_{kind}")
-    return jql.replace("$JIRA_PROJECTS", _config_var("JIRA_PROJECTS"))
+# ── Backlog page ─────────────────────────────────────────────────────────────
+# Used when secrets/config has no JQL_BACKLOG. The org-specific filter (labels,
+# excluded epics, test-case issue types) belongs there, not in the repo.
+_DEFAULT_BACKLOG_JQL = ("project in ($JIRA_PROJECTS) AND statusCategory != Done "
+                        "AND (assignee is EMPTY OR assignee = currentUser()) AND issuetype != Epic")
+_BACKLOG_FIELDS = "summary,status,issuetype,priority,labels,assignee,updated,issuelinks,comment,attachment,parent"
 
 
-def _field_by_name(fields: dict, names: dict, pattern: str):
-    """First non-empty field value whose *display name* matches pattern.
+def _backlog_filter() -> str:
+    """JQL_BACKLOG minus any ORDER BY: the page adds its own sprint clause and
+    Rank order."""
+    jql = _config_var("JQL_BACKLOG") or _DEFAULT_BACKLOG_JQL
+    jql = jql.replace("$JIRA_PROJECTS", _config_var("JIRA_PROJECTS"))
+    return re.sub(r"\s+ORDER\s+BY\s.*$", "", jql, flags=re.I | re.S).strip()
 
-    Like _text_field_by_name but returns the raw value (numbers included),
-    for custom fields such as Story Points whose id varies per Jira instance.
-    """
-    for fid, fname in names.items():
-        if re.search(pattern, fname or "", re.I):
-            val = fields.get(fid)
-            if val not in (None, "", []):
-                return val
+
+def _jira_fields() -> list:
+    """Field definitions (id, name, schema). Custom-field ids differ per
+    instance, so they're looked up by name. Cached for the process lifetime."""
+    if "fields" not in _jira_cache:
+        _jira_cache["fields"] = _jira_request("GET", "/rest/api/2/field")
+    return _jira_cache["fields"]
+
+
+def _field_ids(pattern: str) -> list:
+    return [f["id"] for f in _jira_fields() if re.search(pattern, f.get("name") or "", re.I)]
+
+
+def _first_value(fields: dict, ids: list):
+    for fid in ids:
+        val = fields.get(fid)
+        if val not in (None, "", []):
+            return val
     return None
 
 
-def _fetch_backlog() -> list:
-    """Unassigned backlog candidates for the current + future sprints, enriched
-    with description/epic/story-points/blocked-by for the standalone backlog page."""
-    issues = []
-    for kind, sprint_type in (("CURRENT", "current"), ("FUTURE", "next")):
-        jql = _backlog_jql(kind)
-        if not jql:
-            continue
-        data = _jira_request("GET", "/rest/api/2/search", params={
-            "jql": jql, "maxResults": 100, "fields": "*all", "expand": "names",
-        })
-        names = data.get("names", {})
-        for issue in data.get("issues", []):
-            f = issue.get("fields", {})
-            desc = (f.get("description") or "").strip()
-            if len(desc) > 400:
-                desc = desc[:400].rstrip() + "…"
-            blocked_by = [
-                {"key": link["inwardIssue"]["key"],
-                 "summary": link["inwardIssue"]["fields"].get("summary", ""),
-                 "status": (link["inwardIssue"]["fields"].get("status", {}).get("name") or "").upper()}
-                for link in (f.get("issuelinks") or [])
-                if link.get("type", {}).get("inward") == "is blocked by" and link.get("inwardIssue")
-            ]
-            issues.append({
-                "key": issue.get("key", ""),
-                "summary": f.get("summary", ""),
-                "status": (f.get("status") or {}).get("name", "").upper(),
-                "type": (f.get("issuetype") or {}).get("name", ""),
-                "priority": (f.get("priority") or {}).get("name", ""),
-                "updated": f.get("updated", ""),
-                "labels": f.get("labels") or [],
-                "description": desc,
-                "epic_key": _field_by_name(f, names, r"epic\s*link"),
-                "story_points": _field_by_name(f, names, r"story\s*point"),
-                "blocked_by": blocked_by,
-                "sprint_type": sprint_type,
-            })
+def _textarea_fields() -> list:
+    """(id, name) of every multi-line custom text field (acceptance criteria,
+    steps to reproduce, …), acceptance criteria first."""
+    order = (r"accept", r"steps.*repro", r"expected", r"actual")
+    rank = lambda name: next((i for i, p in enumerate(order) if re.search(p, name, re.I)), len(order))
+    found = [(f["id"], f.get("name") or f["id"]) for f in _jira_fields()
+             if str((f.get("schema") or {}).get("custom", "")).endswith(":textarea")]
+    return sorted(found, key=lambda f: (rank(f[1]), f[1].lower()))
 
-    epic_keys = sorted({i["epic_key"] for i in issues if i.get("epic_key")})
-    epic_summaries = {}
-    if epic_keys:
+
+def _jira_search_all(jql: str, fields: str, **extra) -> list:
+    """Every issue matching jql, following startAt paging (Jira caps a page at 1000)."""
+    issues = []
+    while True:
         data = _jira_request("GET", "/rest/api/2/search", params={
-            "jql": f"key in ({','.join(epic_keys)})",
-            "maxResults": len(epic_keys),
-            "fields": "summary",
+            "jql": jql, "fields": fields, "startAt": len(issues), "maxResults": 500, **extra})
+        page = data.get("issues", [])
+        issues.extend(page)
+        if not page or len(issues) >= data.get("total", 0):
+            return issues
+
+
+def _issues_by_key(keys: list, fields: str) -> dict:
+    """{key: fields}, 100 keys per query. validateQuery=false skips keys that
+    vanished or aren't visible instead of failing the whole lookup."""
+    out = {}
+    for i in range(0, len(keys), 100):
+        for it in _jira_search_all(f"key in ({','.join(keys[i:i + 100])})", fields, validateQuery="false"):
+            out[it["key"]] = it.get("fields") or {}
+    return out
+
+
+def _agile_values(path: str, **params) -> list:
+    """All 'values' of a paged Jira Agile endpoint (boards, sprints)."""
+    values = []
+    while True:
+        data = _jira_request("GET", path, params={**params, "startAt": len(values), "maxResults": 50})
+        page = data.get("values", [])
+        values.extend(page)
+        if data.get("isLast", True) or not page:
+            return values
+
+
+def _team_sprints():
+    """(board id, active sprints, future sprints) for the team board.
+
+    Found like poll.sh does — first scrum board of the first configured project
+    that has an active sprint — but the sprints are then read from the sprint's
+    *origin* board. The board found first can be a copy whose filter covers
+    fewer projects, and it then lists fewer sprint buckets than really exist.
+    """
+    first_project = _config_var("JIRA_PROJECTS").split(",")[0].strip()
+    for board in _agile_values("/rest/agile/1.0/board", projectKeyOrId=first_project, type="scrum"):
+        active = _agile_values(f"/rest/agile/1.0/board/{board['id']}/sprint", state="active")
+        if active:
+            board_id = active[0].get("originBoardId") or board["id"]
+            return board_id, active, _agile_values(f"/rest/agile/1.0/board/{board_id}/sprint", state="future")
+    return None, [], []
+
+
+def _person(p):
+    return {"name": p.get("name", ""), "display": p.get("displayName") or p.get("name", "")} if p else None
+
+
+def _linked(issue: dict) -> dict:
+    """A linked issue / subtask / parent as embedded in another issue's fields."""
+    f = issue.get("fields") or {}
+    status = f.get("status") or {}
+    cat = (status.get("statusCategory") or {}).get("key", "")
+    return {"key": issue.get("key", ""), "summary": f.get("summary", ""),
+            "status": status.get("name", ""), "status_category": cat, "done": cat == "done"}
+
+
+def _backlog_issue(raw: dict, epic_ids, points_ids, flag_ids) -> dict:
+    f = raw.get("fields") or {}
+    status = f.get("status") or {}
+    comment = f.get("comment") or {}
+    parent = f.get("parent")
+    return {
+        "key": raw["key"],
+        "summary": f.get("summary", ""),
+        "status": status.get("name", ""),
+        "status_category": (status.get("statusCategory") or {}).get("key", ""),
+        "type": (f.get("issuetype") or {}).get("name", ""),
+        "priority": (f.get("priority") or {}).get("name", ""),
+        "labels": f.get("labels") or [],
+        "assignee": _person(f.get("assignee")),
+        "story_points": _first_value(f, points_ids),
+        "epic": _first_value(f, epic_ids),
+        "parent": {"key": parent["key"], "summary": _linked(parent)["summary"]} if parent else None,
+        "flagged": bool(_first_value(f, flag_ids)),
+        "blocked_by": [_linked(link["inwardIssue"]) for link in f.get("issuelinks") or []
+                       if link.get("inwardIssue") and (link.get("type") or {}).get("inward") == "is blocked by"],
+        "comments": comment.get("total") or len(comment.get("comments") or []),
+        "attachments": len(f.get("attachment") or []),
+        "updated": f.get("updated", ""),
+    }
+
+
+def _fetch_backlog() -> dict:
+    """The backlog page, top to bottom: the active sprint, the next two dated
+    sprints, then the rest of the backlog — later sprints, the board's undated
+    placeholder "X Backlog" buckets, and issues in no open/future sprint.
+    Every section is filtered by JQL_BACKLOG and ordered by Rank, like Jira's
+    own backlog view."""
+    jira_url, _ = _jira_secrets()
+    base = _backlog_filter()
+    epic_ids = _field_ids(r"^epic\s*link$")
+    points_ids = _field_ids(r"^story\s*points?$")
+    flag_ids = _field_ids(r"^flagged$")
+    fields = ",".join([_BACKLOG_FIELDS, *epic_ids, *points_ids, *flag_ids])
+    warnings = []
+
+    try:
+        board_id, active, future = _team_sprints()
+    except Exception as e:
+        board_id, active, future = None, [], []
+        warnings.append(f"Couldn't read the team board's sprints ({e}) — showing one flat backlog.")
+    dated = sorted((s for s in future if s.get("startDate")), key=lambda s: s["startDate"])
+    upcoming, later = dated[:2], dated[2:] + [s for s in future if not s.get("startDate")]
+
+    sections, jobs = [], []
+
+    def section(kind, title, sprint=None):
+        sprint = sprint or {}
+        sec = {"id": f"sprint-{sprint['id']}" if sprint else kind, "kind": kind, "title": title,
+               "start": (sprint.get("startDate") or "")[:10] or None,
+               "end": (sprint.get("endDate") or "")[:10] or None,
+               "goal": (sprint.get("goal") or "").strip(), "groups": []}
+        sections.append(sec)
+        return sec
+
+    def group(sec, title, clause):
+        g = {"title": title, "issues": []}
+        sec["groups"].append(g)
+        jobs.append((sec, g, f"({base}){f' AND {clause}' if clause else ''} ORDER BY Rank ASC"))
+
+    for s in active:
+        group(section("active", s.get("name") or "Active sprint", s), None, f"sprint = {s['id']}")
+    for s in upcoming:
+        group(section("future", s.get("name") or "Next sprint", s), None, f"sprint = {s['id']}")
+    rest = section("rest", "Rest of the backlog" if board_id else "Backlog")
+    for s in later:
+        group(rest, s.get("name") or f"Sprint {s['id']}", f"sprint = {s['id']}")
+    # Deliberately a catch-all, and deliberately last: `seen` has already claimed
+    # everything the sprint groups matched, so anything else the filter matches
+    # lands here instead of silently vanishing (a sprint bucket living on another
+    # board, say) — the page can't show fewer issues than the filter matches.
+    group(rest, "Not in a sprint / other" if board_id else None, None)
+
+    def run(job):
+        try:
+            return _jira_search_all(job[2], fields), None
+        except urllib.error.HTTPError as e:
+            return [], _http_err_msg(e)
+        except Exception as e:
+            return [], str(e)
+
+    with ThreadPoolExecutor(max_workers=12) as pool:
+        results = list(pool.map(run, jobs))
+
+    seen, issues = set(), []
+    for (sec, g, _), (raw, err) in zip(jobs, results):
+        if err:
+            warnings.append(f"{g['title'] or sec['title']}: {err}")
+        for it in raw:
+            if it["key"] not in seen:  # an issue lives in the first section that claims it
+                seen.add(it["key"])
+                issue = _backlog_issue(it, epic_ids, points_ids, flag_ids)
+                g["issues"].append(issue)
+                issues.append(issue)
+
+    # Sub-tasks carry no Epic Link of their own; they belong to their parent's epic.
+    orphans = sorted({i["parent"]["key"] for i in issues if i["parent"] and not i["epic"]})
+    if orphans and epic_ids:
+        try:
+            parents = _issues_by_key(orphans, ",".join(epic_ids))
+            for i in issues:
+                if i["parent"] and not i["epic"]:
+                    i["epic"] = _first_value(parents.get(i["parent"]["key"], {}), epic_ids)
+        except Exception as e:
+            warnings.append(f"Couldn't look up sub-task parents' epics ({e}).")
+
+    epics = {}
+    epic_keys = sorted({i["epic"] for i in issues if i["epic"]})
+    if epic_keys:
+        name_ids, color_ids = _field_ids(r"^epic\s*name$"), _field_ids(r"^epic\s*colou?r$")
+        try:
+            for k, ef in _issues_by_key(epic_keys, ",".join(["summary", *name_ids, *color_ids])).items():
+                epics[k] = {"key": k, "summary": ef.get("summary", ""),
+                            "name": _first_value(ef, name_ids) or ef.get("summary", ""),
+                            "color": _first_value(ef, color_ids) or ""}
+        except Exception as e:
+            warnings.append(f"Couldn't look up epic names ({e}).")
+
+    try:
+        me = _my_jira_username()
+    except Exception:
+        me = ""
+    return {
+        "jira_url": jira_url, "me": me, "board_id": board_id,
+        "board_url": f"{jira_url}/secure/RapidBoard.jspa?rapidView={board_id}&view=planning" if board_id else "",
+        "sections": sections, "epics": epics, "warnings": warnings,
+    }
+
+
+def _sprint_names(values) -> list:
+    """Sprint field values -> ["Sprint 6 - Team A_PI27 (future)", …]. API v2
+    returns strings like "…Sprint@1f[id=7042,…,name=Sprint 6,rapidViewId=655,…,state=FUTURE,…]"."""
+    out = []
+    for v in values or []:
+        if isinstance(v, dict):
+            name, state = v.get("name"), v.get("state")
+        else:
+            m_name = re.search(r"name=(.*?),\w+=", str(v))
+            m_state = re.search(r"state=(\w+)", str(v))
+            name, state = m_name and m_name.group(1), m_state and m_state.group(1)
+        if name:
+            out.append(f"{name} ({state.lower()})" if state else name)
+    return out
+
+
+def _proxy_url(url: str) -> str:
+    return "/api/jira-file?path=" + urllib.parse.quote(urllib.parse.urlparse(url or "").path, safe="")
+
+
+def _issue_detail(key: str) -> dict:
+    """Everything the backlog page's expanded row shows, with Jira's own
+    rendered HTML for description / text fields / comments."""
+    data = _jira_request("GET", f"/rest/api/2/issue/{key}", params={"expand": "renderedFields"})
+    f, rendered = data.get("fields") or {}, data.get("renderedFields") or {}
+    epic_ids = _field_ids(r"^epic\s*link$")
+    status = f.get("status") or {}
+    parent = f.get("parent")
+    epic = _first_value(f, epic_ids)
+    if not epic and parent and epic_ids:
+        try:
+            epic = _first_value(_jira_request("GET", f"/rest/api/2/issue/{parent['key']}",
+                                              params={"fields": ",".join(epic_ids)}).get("fields") or {}, epic_ids)
+        except Exception:
+            pass
+
+    text_fields = [{"name": name, "html": rendered.get(fid) or f"<p>{html.escape(str(f[fid]))}</p>"}
+                   for fid, name in _textarea_fields() if f.get(fid) not in (None, "")]
+
+    links = []
+    for link in f.get("issuelinks") or []:
+        t = link.get("type") or {}
+        if link.get("inwardIssue"):
+            links.append({**_linked(link["inwardIssue"]), "relation": t.get("inward", "")})
+        elif link.get("outwardIssue"):
+            links.append({**_linked(link["outwardIssue"]), "relation": t.get("outward", "")})
+    links.sort(key=lambda x: (x["relation"] != "is blocked by", x["relation"]))
+
+    comment = f.get("comment") or {}
+    rendered_bodies = {c.get("id"): c.get("body") for c in (rendered.get("comment") or {}).get("comments") or []}
+    comments = [{"author": (c.get("author") or {}).get("displayName", "?"),
+                 "created": c.get("created", ""), "updated": c.get("updated", ""),
+                 "html": rendered_bodies.get(c.get("id")) or f"<p>{html.escape(c.get('body') or '')}</p>"}
+                for c in comment.get("comments") or []]
+
+    attachments = []
+    for a in f.get("attachment") or []:
+        is_img = (a.get("mimeType") or "").startswith("image/")
+        attachments.append({
+            "filename": a.get("filename", ""), "size": a.get("size") or 0, "mime": a.get("mimeType", ""),
+            "created": a.get("created", ""), "author": (a.get("author") or {}).get("displayName", ""),
+            "url": a.get("content", ""),
+            "img": _proxy_url(a.get("content")) if is_img else None,
+            "thumb": _proxy_url(a.get("thumbnail")) if is_img and a.get("thumbnail") else None,
         })
-        epic_summaries = {e["key"]: e.get("fields", {}).get("summary", "")
-                           for e in data.get("issues", [])}
-    for i in issues:
-        ek = i.pop("epic_key")
-        i["epic"] = {"key": ek, "summary": epic_summaries.get(ek, "")} if ek else None
-    return issues
+
+    return {
+        "key": data.get("key", key), "summary": f.get("summary", ""),
+        "status": status.get("name", ""),
+        "status_category": (status.get("statusCategory") or {}).get("key", ""),
+        "resolution": (f.get("resolution") or {}).get("name", ""),
+        "type": (f.get("issuetype") or {}).get("name", ""),
+        "priority": (f.get("priority") or {}).get("name", ""),
+        "assignee": _person(f.get("assignee")), "reporter": _person(f.get("reporter")),
+        "created": f.get("created", ""), "updated": f.get("updated", ""), "duedate": f.get("duedate") or "",
+        "labels": f.get("labels") or [],
+        "components": [c.get("name", "") for c in f.get("components") or []],
+        "fix_versions": [v.get("name", "") for v in f.get("fixVersions") or []],
+        "affects_versions": [v.get("name", "") for v in f.get("versions") or []],
+        "sprints": _sprint_names(_first_value(f, _field_ids(r"^sprint$"))),
+        "story_points": _first_value(f, _field_ids(r"^story\s*points?$")),
+        "epic": epic,
+        "parent": {"key": parent["key"], "summary": _linked(parent)["summary"]} if parent else None,
+        "description_html": rendered.get("description") or "",
+        "text_fields": text_fields, "links": links,
+        "subtasks": [_linked(s) for s in f.get("subtasks") or []],
+        "attachments": attachments,
+        "comments": comments, "comments_total": comment.get("total", len(comments)),
+    }
+
+
+# ── Jira image proxy ─────────────────────────────────────────────────────────
+# The browser has no Jira token and cross-site cookies aren't sent with <img>,
+# so images in rendered Jira HTML are fetched through here.
+_IMAGE_LIMIT = 25 * 1024 * 1024
+
+
+def _jira_image_path(path: str) -> str:
+    """Canonical Jira path for an image the page may show, else ValueError.
+    Attachment/thumbnail paths are rebuilt from the numeric id alone (Jira
+    ignores the filename part), so the proxy can't be steered at any other
+    Jira URL with our token."""
+    m = re.match(r"^/secure/(attachment|thumbnail)/(\d+)(?:/|$)", path or "")
+    if m:
+        kind, aid = m.groups()
+        return f"/secure/attachment/{aid}/" if kind == "attachment" else f"/secure/thumbnail/{aid}/_thumb_{aid}.png"
+    if re.fullmatch(r"/images/icons/[\w-]+(?:/[\w-]+)*\.(?:png|gif|jpe?g|svg)", path or ""):
+        return path
+    raise ValueError("not a Jira image path")
+
+
+class _NoRedirect(urllib.request.HTTPRedirectHandler):
+    def redirect_request(self, req, fp, code, msg, headers, newurl):
+        return None  # Jira answers a failed attachment fetch with a 302 to its login page
+
+
+def _fetch_jira_image(path: str):
+    """(content type, bytes). A failed fetch comes back from Jira as a redirect
+    to an HTML login page, so anything that isn't a direct image is refused."""
+    base, token = _jira_secrets()
+    req = urllib.request.Request(base + _jira_image_path(path), headers={"Authorization": f"Bearer {token}"})
+    with urllib.request.build_opener(_NoRedirect).open(req, timeout=20) as resp:
+        ctype = (resp.headers.get("Content-Type") or "").split(";")[0].strip().lower()
+        body = resp.read(_IMAGE_LIMIT + 1)
+    if not ctype.startswith("image/"):
+        raise ValueError(f"not an image ({ctype or 'unknown type'})")
+    if len(body) > _IMAGE_LIMIT:
+        raise ValueError("image too large")
+    return ctype, body
 
 
 def _jira_request(method: str, path: str, body=None, params=None):
@@ -851,6 +1149,12 @@ class Handler(http.server.SimpleHTTPRequestHandler):
         if self.path.startswith("/api/backlog"):
             self._handle_backlog()
             return
+        if self.path.startswith("/api/issue-detail"):
+            self._handle_issue_detail()
+            return
+        if self.path.startswith("/api/jira-file"):
+            self._handle_jira_file()
+            return
         if self.path.startswith("/api/worklog-status"):
             self._handle_worklog_status()
             return
@@ -923,12 +1227,46 @@ class Handler(http.server.SimpleHTTPRequestHandler):
 
     def _handle_backlog(self):
         try:
-            jira_url, _ = _jira_secrets()
-            self._respond_json(200, {"jira_url": jira_url, "issues": _fetch_backlog()})
+            self._respond_json(200, _fetch_backlog())
         except urllib.error.HTTPError as e:
             self._respond(502, _http_err_msg(e))
         except Exception as e:
             self._respond(502, f"Jira error: {e}")
+
+    def _handle_issue_detail(self):
+        qs = urllib.parse.parse_qs(urllib.parse.urlparse(self.path).query)
+        key = (qs.get("key") or [""])[0]
+        if not JIRA_KEY_RE.match(key):
+            self._respond(400, "Invalid or missing key")
+            return
+        try:
+            self._respond_json(200, _issue_detail(key))
+        except urllib.error.HTTPError as e:
+            self._respond(404 if e.code == 404 else 502, _http_err_msg(e))
+        except Exception as e:
+            self._respond(502, f"Jira error: {e}")
+
+    def _handle_jira_file(self):
+        qs = urllib.parse.parse_qs(urllib.parse.urlparse(self.path).query)
+        try:
+            ctype, body = _fetch_jira_image((qs.get("path") or [""])[0])
+        except ValueError as e:
+            self._respond(400, str(e))
+            return
+        except urllib.error.HTTPError as e:
+            self._respond(404 if e.code < 500 else 502, f"Jira: HTTP {e.code}")
+            return
+        except Exception as e:
+            self._respond(502, f"Jira error: {e}")
+            return
+        self.send_response(200)
+        self.send_header("Content-Type", ctype)
+        self.send_header("Content-Length", str(len(body)))
+        self.send_header("Cache-Control", "private, max-age=86400")
+        self.send_header("X-Content-Type-Options", "nosniff")
+        self.send_header("Content-Security-Policy", "sandbox")
+        self.end_headers()
+        self.wfile.write(body)
 
     def _handle_sonar_issues(self):
         qs = urllib.parse.parse_qs(urllib.parse.urlparse(self.path).query)

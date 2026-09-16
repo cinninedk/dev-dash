@@ -45,7 +45,12 @@ STASH_URL="https://your-bitbucket-server"
 JIRA_URL="https://your-jira-server"
 USERNAME="your-bitbucket-username"
 JIRA_PROJECTS="PROJ1,PROJ2"
+# Optional: which issues backlog.html lists (no sprint clause, no ORDER BY).
+# Default: open, unassigned-or-mine, not an Epic.
+JQL_BACKLOG="project in ($JIRA_PROJECTS) AND statusCategory != Done AND (assignee is EMPTY OR assignee = currentUser()) AND issuetype != Epic"
 ```
+
+`secrets/copilot-token` holds the GitHub token the Copilot leaderboard poll uses.
 
 Tokens are plain text files with no trailing newline. Generate them from the
 respective web UIs under Profile → Personal access tokens.
