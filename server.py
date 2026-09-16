@@ -1250,6 +1250,35 @@ class Handler(http.server.SimpleHTTPRequestHandler):
             _recompute_total(tracker)
         return 200, None
 
+    # ── local-only guards ────────────────────────────────────────────────
+    _FORBIDDEN_DIRS = {"secrets", "__pycache__"}
+
+    def parse_request(self):
+        """Refuse requests addressed to any other host name, so a web page in
+        the user's browser can't reach these token-backed endpoints by pointing
+        a DNS name at 127.0.0.1 (DNS rebinding)."""
+        if not super().parse_request():
+            return False
+        host = (self.headers.get("Host") or "").rsplit(":", 1)[0].strip("[]")
+        if host and host not in ("localhost", "127.0.0.1", "::1"):
+            self.send_error(403, "Forbidden host")
+            return False
+        return True
+
+    def send_head(self):
+        """Never serve secrets/, dotfiles (.git, .claude, .envrc) or caches.
+        Checked on the *translated* path, so %-encoding, '..', '//' and APFS
+        case-folding can't slip past."""
+        try:
+            parts = pathlib.PurePath(self.translate_path(self.path)).relative_to(self.directory).parts
+        except ValueError:
+            self.send_error(404)
+            return None
+        if any(p.startswith(".") or p.lower() in self._FORBIDDEN_DIRS for p in parts):
+            self.send_error(404)
+            return None
+        return super().send_head()
+
     def _respond(self, code: int, msg: str):
         body = msg.encode()
         self.send_response(code)
@@ -1270,12 +1299,26 @@ class Handler(http.server.SimpleHTTPRequestHandler):
         pass
 
 
+class _LocalOnlyServer(http.server.ThreadingHTTPServer):
+    """Serves this machine only.
+
+    The socket still binds 0.0.0.0 because macOS lets a normal user bind a
+    privileged port (666) only via INADDR_ANY — binding 127.0.0.1:666 needs
+    root. So connections from anywhere else are dropped here instead, which
+    keeps secrets/, the Jira image proxy and every token-backed /api endpoint
+    off the network.
+    """
+
+    def verify_request(self, request, client_address):
+        return client_address[0] in ("127.0.0.1", "::1", "::ffff:127.0.0.1")
+
+
 if __name__ == "__main__":
     os.chdir(ROOT)
     DATA_DIR.mkdir(exist_ok=True)
     if TEST_MODE:
         print(f"TEST MODE — data from: {DATA_DIR}", flush=True)
     _migrate_timetrack()
-    with http.server.ThreadingHTTPServer(("", PORT), Handler) as srv:
+    with _LocalOnlyServer(("", PORT), Handler) as srv:
         print(f"dashboard server listening on :{PORT}", flush=True)
         srv.serve_forever()
