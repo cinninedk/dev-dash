@@ -2,10 +2,8 @@
 
 A local developer dashboard that surfaces your open Bitbucket pull-requests and
 Jira sprint issues in one view. Runs entirely on your machine — no cloud service,
-no telemetry. Two frontends share the same JSON data files:
-
-- **GUI** — browser page at `http://localhost:666`
-- **TUI** — terminal interface (`tui.py`)
+no telemetry. The browser page at `http://localhost:666` renders the JSON files
+the poller writes, and asks `server.py` for anything that has to be live.
 
 ---
 
@@ -16,7 +14,7 @@ no telemetry. Two frontends share the same JSON data files:
 | `bash` | `poll.sh` data fetcher |
 | `curl` | API calls to Bitbucket / Jira / SonarQube |
 | `jq` | JSON processing in `poll.sh` |
-| `python3` (3.10+) | TUI and local HTTP server |
+| `python3` (3.9+) | local HTTP server (`server.py`) and `/api/*` endpoints |
 | macOS `launchd` | Auto-start and keep-alive |
 
 ```sh
@@ -101,9 +99,7 @@ poll_fetch_buffer_seconds: 2   # browser fetches this many seconds after next_po
 
 poll_build_stale_seconds: 600  # re-fetch Jenkins/Sonar even if commit unchanged
 
-tui_refresh_seconds: 15        # how often the TUI re-reads data files
-
-work_hours_enabled: false      # set true to pause TUI outside work hours
+work_hours_enabled: false      # set true to pause polling outside work hours
 work_start_hour: 8
 work_end_hour: 18
 ```
@@ -175,42 +171,6 @@ fetch for that moment. Hit **⟳ REFRESH** or **Cmd+R** for an immediate reload.
 
 ---
 
-## TUI (terminal)
-
-```sh
-python3 tui.py
-```
-
-Requires Python 3.10+.
-
-### Layout
-
-```
-◆ DEV-DASHBOARD  UP 00:12:34  NEXT 12s              Thu 28/05  09:41:22
-────────────────────────────────────────────────────────────────────────
-MY PRs: 2  FOR REVIEW: 3  JIRA ACTIVE: 7  BUILDS FAILING: 0
-────────────────────────────────────────────────────────────────────────
-── MY PULL REQUESTS
-#704  stilloginportal  [Casper Nielsen]  feat/STILLOGIN-704…   APPROVED  T:0  SUCCESSFUL  QG PASSED
-      a1b2c3d  bugs:0  smells:2  vulns:0  hots:0  1 cmt
-── JIRA KANBAN
- OPEN (0) │ IMPLEMENT (1) │ QA (2) │ BV (0) │ RESOLVED (3)
-```
-
-### Key bindings
-
-| Key | Action |
-|-----|--------|
-| `R` | Reload data from disk immediately |
-| `Q` / `Ctrl-C` | Quit |
-
-**Mouse:** click any underlined issue key or PR link to open it in the browser.
-
-The TUI re-reads the data files every `tui_refresh_seconds` (default 15).
-If `work_hours_enabled: true`, polling pauses outside the configured hours.
-
----
-
 ## How it works
 
 `poll.sh` runs in a continuous loop, sleeping `poll_active_seconds` between
@@ -228,7 +188,9 @@ iterations. Each iteration:
    - Next task candidates: sprint Stories not in QA/BV/Resolved, unassigned or yours (shown when you have nothing in OPEN/IMPLEMENT)
 4. Writes `data/bitbucket.json` and `data/jira.json`
 
-The browser and TUI only read those files — they never call the APIs directly.
+The browser reads those files. Anything that has to be live — issue detail,
+the backlog, PR comments, Jira images — goes through `server.py`'s `/api/*`
+endpoints, so the tokens never reach the browser.
 
 ---
 
@@ -238,7 +200,7 @@ The browser and TUI only read those files — they never call the APIs directly.
 dashboard/
 ├── poll.sh               # data fetcher
 ├── index.html            # browser GUI
-├── tui.py                # terminal TUI
+├── server.py             # HTTP server + /api/* endpoints
 ├── config.yaml           # tunable settings
 ├── setup.sh              # install launchd plists
 ├── start.sh              # load launchd agents
