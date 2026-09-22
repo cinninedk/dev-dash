@@ -38,7 +38,8 @@ printf "\n\033[1;33mPR #%s\033[0m  %s\n" "$PR_ID" "$TITLE"
 printf "\033[2mAuthor: %s  |  Repo: %s\033[0m\n\n" "$AUTHOR" "$SLUG"
 
 echo "$all_activities" | jq -r '
-  map(select(.action == "COMMENTED" and .comment != null and (.comment.parent == null))) |
+  map(select(.action == "COMMENTED" and .comment != null and (.comment.parent == null)
+             and (.comment.state != "RESOLVED") and (.comment.threadResolved != true))) |
   map({
     state:  .comment.state,
     author: (.comment.author.displayName // .comment.author.name // "Unknown"),
