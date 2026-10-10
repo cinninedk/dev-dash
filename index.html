@@ -260,6 +260,7 @@
     #jira-review-list { border-bottom: 1px solid var(--border); max-height: 200px; overflow-y: auto; }
     .jira-review-label { padding: 3px 10px; font-size: 15px; color: var(--dim); letter-spacing: 1px; background: var(--panel); border-bottom: 1px solid var(--border); position: sticky; top: 0; }
     #reviewer-prs-list { max-height: 250px; overflow-y: auto; }
+    #my-prs-list { max-height: 250px; overflow-y: auto; }
 
 
     .pr-item { border-bottom: 1px solid var(--row-border); }
@@ -589,6 +590,15 @@
     .t-bug   { color: var(--red);  border-color: var(--red); }
     .t-task  { color: var(--dim);  border-color: var(--border); }
     .tqa-badge { font-size: 14px; padding: 0 4px; border: 1px solid var(--blue); color: var(--blue); letter-spacing: 1px; }
+    .pr-badge { font-size: 13px; padding: 0 5px; border: 1px solid currentColor; letter-spacing: 0.5px; white-space: nowrap; }
+    .pr-badge.open { color: var(--yellow); }
+    .pr-badge.approved { color: var(--bright); }
+    .pr-badge.merged { color: var(--green); }
+    .pr-badge.draft { color: var(--dim); }
+    /* unseen activity by others on a card; click to mark seen */
+    .act-badge { font-size: 13px; padding: 0 5px; border: 1px solid var(--bright); color: var(--bright); background: var(--sel-bg);
+                 letter-spacing: 0.5px; white-space: nowrap; cursor: pointer; animation: blink 2.4s ease-in-out infinite; }
+    .act-badge:hover { animation: none; }
     /* next-sprint candidates in the NEXT TASK lane: clearly de-emphasised */
     .jira-card.next-sprint-card { opacity: 0.45; }
     .jira-card.next-sprint-card:hover { opacity: 0.8; }
@@ -1375,7 +1385,7 @@
           <span class="pr-repo" title="${esc(pr.repo)}">${esc(pr.repo)}</span>
           ${authorCol}
           <span class="pr-title">${titleHtml}</span>
-          <span class="pr-meta">${appr} ${nwBadge} ${tasks}</span>
+          <span class="pr-meta">${pr.draft ? '<span class="badge b-none" title="Draft PR (Bitbucket draft, or WIP/draft in the title)">DRAFT</span>' : ''} ${appr} ${nwBadge} ${tasks}</span>
           ${buildBadge(pr.build_state, pr.build_name, pr.build_url)}
           ${qgBadge(pr.qg_label, pr.sonar_url, pr.sonar_building)}
           ${pr.qg_label === 'FAIL' && pr.sonar_url ? `<button class="copy-btn" onclick="openSonarIssues(${pr.id}, this)">issues</button>` : ''}
@@ -1433,6 +1443,63 @@
     return current.map(cur).join('');
   }
 
+  // Linked-PR state (poll.sh → issue.prs, from Jira + Bitbucket): open PRs
+  // split into review / approved / draft, plus merged. Drafts get their own
+  // DRAFT badge next to it, and keep ALL MERGED from showing; declined PRs none.
+  function prBadge(prs) {
+    const {review = 0, approved = 0, draft = 0, merged = 0} = prs || {};
+    const title = `Linked PRs: ${review} in review · ${approved} approved · ${draft} draft · ${merged} merged`;
+    const [cls, label] =
+        review   ? ['open', review > 1 ? `${review} PRS IN REVIEW` : 'PR IN REVIEW']
+      : approved ? ['approved', approved > 1 ? 'ALL APPROVED' : 'APPROVED']
+      : merged && !draft ? ['merged', 'ALL MERGED']
+      : [];
+    const draftBadge = draft ? `<span class="pr-badge draft" title="${title}">${draft > 1 ? `${draft} DRAFTS` : 'DRAFT'}</span>` : '';
+    return (label ? `<span class="pr-badge ${cls}" title="${title}">${label}</span>` : '') + draftBadge;
+  }
+
+  // ── Unseen activity on cards ──
+  // poll.sh gives each board issue its recent activity by OTHER people
+  // (comments, status changes, field edits). What you've seen is remembered per
+  // issue in localStorage; anything newer shows as a badge until clicked. An
+  // issue seen for the first time counts the last 24 h as new.
+  const SEEN_KEY = 'jiraffe-activity-seen';
+  let activitySeen = {};
+  try { activitySeen = JSON.parse(localStorage.getItem(SEEN_KEY)) || {}; } catch (e) {}
+  const saveSeen = () => { try { localStorage.setItem(SEEN_KEY, JSON.stringify(activitySeen)); } catch (e) {} };
+
+  function unseenActivity(issue) {
+    const acts = issue.activity || [];
+    if (!acts.length) return [];
+    if (activitySeen[issue.key] == null) { activitySeen[issue.key] = Date.now() - 86_400_000; saveSeen(); }
+    return acts.filter(a => Date.parse(a.when) > activitySeen[issue.key]);
+  }
+
+  function markActivitySeen(key) {
+    activitySeen[key] = Date.now();
+    saveSeen();
+    if (bbData && jiraData) renderAll(bbData, jiraData);
+  }
+
+  function activityBadges(issue) {
+    const acts = unseenActivity(issue);
+    if (!acts.length) return '';
+    const when = a => new Date(a.when).toLocaleString('da-DK', {day: 'numeric', month: 'numeric', hour: '2-digit', minute: '2-digit'});
+    const line = a => `${when(a)} ${a.who}: ` + (
+      a.type === 'comment' ? `“${a.text}”`
+      : a.type === 'status' ? `${a.from} → ${a.to}`
+      : `changed ${a.fields.join(', ')}`);
+    const title = esc(acts.map(line).join('\n') + '\n\nClick to mark as seen');
+    const comments = acts.filter(a => a.type === 'comment');
+    const status = acts.find(a => a.type === 'status');            // newest first
+    const fields = [...new Set(acts.filter(a => a.type === 'edit').flatMap(a => a.fields))];
+    const badges = [];
+    if (comments.length) badges.push(comments.length > 1 ? `💬 ${comments.length} NEW COMMENTS` : '💬 NEW COMMENT');
+    if (status) badges.push(`→ ${status.to.toUpperCase()}`);
+    if (fields.length) badges.push(fields.length > 1 ? `✎ ${fields.length} CHANGES` : `✎ ${fields[0].toUpperCase()}`);
+    return badges.map(b => `<span class="act-badge" title="${title}" onclick="markActivitySeen('${esc(issue.key)}')">${esc(b)}</span>`).join('');
+  }
+
   function jiraCard(issue, hideTqaBadge = false, extraClass = '') {
     const url = JIRA ? `${JIRA}/browse/${esc(issue.key)}` : null;
     const keyColor = 'var(--bright)';
@@ -1463,6 +1530,8 @@
         <div class="card-meta">
           <span class="type-badge ${typeClass(issue.type)}">${esc(issue.type ?? '?')}</span>
           ${issue.in_current_sprint === false && ['OPEN','REOPENED','IMPLEMENT'].includes(issue.status) ? '<span class="no-sprint-badge">NOT IN SPRINT!</span>' : ''}
+          ${activityBadges(issue)}
+          ${prBadge(issue.prs)}
           ${issue.teknisk_qa && !hideTqaBadge ? '<span class="tqa-badge">TEKN·QA</span>' : ''}
           ${issue.parent_key && extraClass !== 'subtask-card' ? `<span class="parent-ref-badge">↑ ${esc(issue.parent_key)}</span>` : ''}
           ${['QUALITY ASSURANCE','BUSINESS VALIDATION','RESOLVED'].includes(issue.status) ? '' : (issue.blocked_by ?? []).map(b => {
@@ -1526,9 +1595,9 @@
     failEl.textContent = failing;
     failEl.className = 'stat-value' + (failing > 0 ? ' bad' : '');
 
-    // My PRs
+    // My PRs — most recently updated (any activity, from Bitbucket) on top
     document.getElementById('my-prs-list').innerHTML = myPRs.length
-      ? myPRs.map(p => prRow(p, false, true, true)).join('')
+      ? [...myPRs].sort((a, b) => (b.updated || 0) - (a.updated || 0)).map(p => prRow(p, false, true, true)).join('')
       : '<div class="empty-msg">no open PRs</div>';
 
     // Reviewer PRs

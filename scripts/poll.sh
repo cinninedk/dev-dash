@@ -27,6 +27,10 @@ BB_USERNAME=$(curl -s "${CURL_OPTS[@]}" -H "Authorization: Bearer $PASSWORD" \
     "$STASH_URL/rest/api/1.0/dashboard/pull-requests?state=OPEN&role=AUTHOR&limit=1" \
     | jq -r '.values[0].author.user.name // ""')
 
+# Jira username, for "is this me" checks (TQA assignee, activity by others)
+JIRA_ME=$(curl -s "${CURL_OPTS[@]}" -H "Authorization: Bearer $JIRA_PASSWORD" \
+    "$JIRA_URL/rest/api/2/myself" | jq -r '.name // ""')
+
 OUT_DIR="$ROOT/data"
 mkdir -p "$OUT_DIR"
 BB_OUT="$OUT_DIR/bitbucket.json"
@@ -216,7 +220,7 @@ process_prs_to_json() {
     local cache_updates="$2"
     echo "$json_input" | jq -c '(.values // []) | map(select(.id != null)) | sort_by(.id) | .[]' | while read -r pr; do
         local id title repo slug project author branch jira_key commit \
-              approvals needs_work reviewer_count tasks comments merge_outcome
+              approvals needs_work reviewer_count tasks comments merge_outcome draft updated
         id=$(echo "$pr"             | jq -r '.id')
         title=$(echo "$pr"          | jq -r '.title')
         repo=$(echo "$pr"           | jq -r '.toRef.repository.name')
@@ -232,6 +236,9 @@ process_prs_to_json() {
         tasks=$(echo "$pr"          | jq -r '.properties.openTaskCount // 0')
         comments=$(get_unresolved_comments "$project" "$slug" "$id")
         merge_outcome=$(echo "$pr"  | jq -r '.properties.mergeResult.outcome // "CLEAN"')
+        # same draft rule as the For Review filter and the kanban PR badge
+        draft=$(echo "$pr"          | jq -r '(.draft == true) or ((.title // "") | ascii_downcase | test("wip|draft"))')
+        updated=$(echo "$pr"        | jq -r '.updatedDate // 0')      # epoch ms, any activity on the PR
 
         # ── Cache check ──
         local cached c_commit c_state c_fetched c_age use_cache
@@ -368,6 +375,8 @@ process_prs_to_json() {
             --argjson tasks "$tasks" \
             --argjson comments "$comments" \
             --arg merge_outcome "$merge_outcome" \
+            --argjson draft "$draft" \
+            --argjson updated "$updated" \
             --arg build_state "$build_state" \
             --arg build_name "$build_name" \
             --arg build_url "$build_url" \
@@ -381,7 +390,7 @@ process_prs_to_json() {
             '{id:$id, title:$title, repo:$repo, slug:$slug, project:$project,
               author:$author, branch:$branch, jira_key:$jira_key, commit:$commit,
               approvals:$approvals, needs_work:$needs_work, reviewer_count:$reviewer_count,
-              tasks:$tasks, comments:$comments, merge_outcome:$merge_outcome,
+              tasks:$tasks, comments:$comments, merge_outcome:$merge_outcome, draft:$draft, updated:$updated,
               build_state:$build_state, build_name:$build_name, build_url:$build_url, qg_label:$qg_label,
               sonar_url:$sonar_url, bugs:$bugs, smells:$smells, vulns:$vulns, hotspots:$hotspots,
               sonar_building:$sonar_building}'
@@ -437,13 +446,31 @@ poll_bitbucket() {
         > "$BB_OUT.tmp" && mv "$BB_OUT.tmp" "$BB_OUT"
 }
 
+# Recent activity by OTHER people on a kanban issue — comments, status changes
+# and field edits, newest first, at most 10 — for the board's "new" badges.
+# Board/admin noise (Rank, Sprint rollover, time tracking) is left out. Times
+# become ISO with a colon offset ("+02:00") so every browser parses them.
+JQ_ACTIVITY='def iso: sub("(?<h>[+-][0-9]{2})(?<m>[0-9]{2})$"; "\(.h):\(.m)");
+def activity($me):
+  ([ (.changelog.histories // [])[] | select(.author.name != $me) | . as $h
+     | [.items[] | select(.field as $f | ["Rank","Sprint","timespent","timeestimate","timeoriginalestimate","WorklogId"] | index($f) | not)]
+     | select(length > 0)
+     | (map(select(.field == "status")) | first) as $st
+     | if $st then {type: "status", who: $h.author.displayName, when: ($h.created | iso), from: $st.fromString, to: $st.toString}
+       else {type: "edit", who: $h.author.displayName, when: ($h.created | iso), fields: (map(.field) | unique)} end ]
+   + [ (.fields.comment.comments // [])[] | select(.author.name != $me)
+       | {type: "comment", who: .author.displayName, when: (.created | iso), text: (.body | gsub("\\s+"; " ") | .[0:160])} ])
+  | sort_by(.when) | reverse | .[0:10];
+'
+
 poll_jira() {
     # ── Jira ──
     log "Fetching Jira issues..."
 
     # JQL queries are defined in secrets/config as JQL_MINE, JQL_IMPL, JQL_TQA, JQL_NEXT
 
-    JQ_PROJ='[.issues[]? | {
+    JQ_PROJ=$JQ_ACTIVITY'[.issues[]? | {
+        id:         .id,
         key:        .key,
         summary:    .fields.summary,
         status:     (.fields.status.name | ascii_upcase),
@@ -453,10 +480,12 @@ poll_jira() {
         parent_key: (.fields.parent.key // null),
         teknisk_qa: ((.fields.labels // []) | any(. == "teknisk_QA")),
         unassigned: (.fields.assignee == null),
-        blocked_by: [(.fields.issuelinks // [])[] | select(.type.inward == "is blocked by" and .inwardIssue != null) | {key: .inwardIssue.key, status: (.inwardIssue.fields.status.name | ascii_upcase)}]
+        blocked_by: [(.fields.issuelinks // [])[] | select(.type.inward == "is blocked by" and .inwardIssue != null) | {key: .inwardIssue.key, status: (.inwardIssue.fields.status.name | ascii_upcase)}],
+        activity:   activity($me)
     }]'
 
-    JQ_PROJ_TQA='[.issues[]? | {
+    JQ_PROJ_TQA=$JQ_ACTIVITY'[.issues[]? | {
+        id:             .id,
         key:            .key,
         summary:        .fields.summary,
         status:         (.fields.status.name | ascii_upcase),
@@ -464,8 +493,9 @@ poll_jira() {
         priority:       .fields.priority.name,
         updated:        .fields.updated,
         teknisk_qa:     true,
-        assigned_to_me: ((.fields.assignee.name // "") == $username),
-        unassigned:     (.fields.assignee == null)
+        assigned_to_me: ((.fields.assignee.name // "") == $me),
+        unassigned:     (.fields.assignee == null),
+        activity:       activity($me)
     }]'
 
     MINE_JSON=$(curl -s "${CURL_OPTS[@]}" \
@@ -474,8 +504,9 @@ poll_jira() {
         --get \
         --data-urlencode "jql=$JQL_MINE" \
         --data-urlencode "maxResults=50" \
-        --data-urlencode "fields=summary,status,issuetype,priority,updated,labels,assignee,issuelinks,parent" \
-        | jq "$JQ_PROJ" 2>/dev/null || echo "[]")
+        --data-urlencode "fields=summary,status,issuetype,priority,updated,labels,assignee,issuelinks,parent,comment" \
+        --data-urlencode "expand=changelog" \
+        | jq --arg me "$JIRA_ME" "$JQ_PROJ" 2>/dev/null || echo "[]")
 
     IMPL_JSON=$(curl -s "${CURL_OPTS[@]}" \
         "$JIRA_URL/rest/api/2/search" \
@@ -483,8 +514,9 @@ poll_jira() {
         --get \
         --data-urlencode "jql=$JQL_IMPL" \
         --data-urlencode "maxResults=50" \
-        --data-urlencode "fields=summary,status,issuetype,priority,updated,labels,assignee,issuelinks,parent" \
-        | jq "$JQ_PROJ" 2>/dev/null || echo "[]")
+        --data-urlencode "fields=summary,status,issuetype,priority,updated,labels,assignee,issuelinks,parent,comment" \
+        --data-urlencode "expand=changelog" \
+        | jq --arg me "$JIRA_ME" "$JQ_PROJ" 2>/dev/null || echo "[]")
 
     TQA_JSON=$(curl -s "${CURL_OPTS[@]}" \
         "$JIRA_URL/rest/api/2/search" \
@@ -492,8 +524,9 @@ poll_jira() {
         --get \
         --data-urlencode "jql=$JQL_TQA" \
         --data-urlencode "maxResults=50" \
-        --data-urlencode "fields=summary,status,issuetype,priority,updated,labels,assignee" \
-        | jq --arg username "$USERNAME" "$JQ_PROJ_TQA" 2>/dev/null || echo "[]")
+        --data-urlencode "fields=summary,status,issuetype,priority,updated,labels,assignee,comment" \
+        --data-urlencode "expand=changelog" \
+        | jq --arg me "$JIRA_ME" "$JQ_PROJ_TQA" 2>/dev/null || echo "[]")
 
     _JQ_NEXT='[.issues[]? | {
         key:        .key,
@@ -564,6 +597,34 @@ poll_jira() {
     TQA_JSON=$(echo "$TQA_JSON" | jq --argjson impl_keys "${IMPL_KEYS:-[]}" '
       map(. + {implemented_by_me: (.key as $k | ($impl_keys | index($k)) != null)})
     ')
+
+    # Linked PRs per kanban card: Jira's development panel lists them (by the
+    # issue's numeric id, not its key); Bitbucket is asked only about the OPEN ones,
+    # for draft + approvals, which Jira doesn't carry. Draft = Bitbucket's flag or
+    # WIP/draft in the title, like the For Review filter. Per issue:
+    #   {review, approved, draft, merged} — open counts split three ways + merged.
+    # Declined PRs are dropped. NEXT TASK candidates are skipped — ~70 unassigned
+    # issues every cycle, and nobody has a PR on them yet.
+    PRS='{}'
+    for ID in $(jq -rn --argjson a "$ISSUES_JSON" --argjson b "$TQA_JSON" '($a + $b) | map(.id) | unique | .[]'); do
+        LIST=$(curl -s "${CURL_OPTS[@]}" \
+            "$JIRA_URL/rest/dev-status/latest/issue/detail?issueId=$ID&applicationType=stash&dataType=pullrequest" \
+            -H "Authorization: Bearer $JIRA_PASSWORD" \
+            | jq -c '[.detail[]?.pullRequests[]? | {status, url}]' 2>/dev/null)
+        [ -z "$LIST" ] && continue
+        C=$(jq -c '{review:0, approved:0, draft:0, merged:([.[] | select(.status == "MERGED")] | length)}' <<<"$LIST")
+        for API in $(jq -r '.[] | select(.status == "OPEN") | .url
+                     | capture("/projects/(?<p>[^/]+)/repos/(?<r>[^/]+)/pull-requests/(?<n>[0-9]+)")
+                     | "projects/\(.p)/repos/\(.r)/pull-requests/\(.n)"' <<<"$LIST"); do
+            KIND=$(curl -s "${CURL_OPTS[@]}" "$STASH_URL/rest/api/1.0/$API" -H "Authorization: Bearer $PASSWORD" \
+                | jq -r 'if (.draft == true) or ((.title // "") | ascii_downcase | test("wip|draft")) then "draft"
+                         elif any(.reviewers[]?; .approved) then "approved" else "review" end' 2>/dev/null)
+            [ -n "$KIND" ] && C=$(jq -c --arg k "$KIND" '.[$k] += 1' <<<"$C")
+        done
+        PRS=$(jq -c --arg id "$ID" --argjson c "$C" '. + {($id): $c}' <<<"$PRS")
+    done
+    ISSUES_JSON=$(jq --argjson prs "$PRS" 'map(.prs = $prs[.id])' <<<"$ISSUES_JSON")
+    TQA_JSON=$(jq --argjson prs "$PRS" 'map(.prs = $prs[.id])' <<<"$TQA_JSON")
 
     FIRST_PROJECT=$(echo "$JIRA_PROJECTS" | cut -d, -f1 | tr -d '"' | tr -d ' ')
     BOARD_IDS=$(curl -s "${CURL_OPTS[@]}" \
