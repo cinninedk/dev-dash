@@ -1,9 +1,13 @@
 # DEV-DASHBOARD
 
-A local developer dashboard that surfaces your open Bitbucket pull-requests and
-Jira sprint issues in one view. Runs entirely on your machine — no cloud service,
-no telemetry. The browser page at `http://localhost:666` renders the JSON files
-the poller writes, and asks `server.py` for anything that has to be live.
+A local developer dashboard: your Bitbucket pull requests, Jira sprint issues,
+Jenkins master builds, SonarQube quality and GitHub Copilot usage in one
+browser view, plus a time tracker, timesheet and salary-hours ledger. Runs
+entirely on your machine — no cloud service, no telemetry.
+
+Shell pollers write `data/*.json`; `server.py` serves the pages and those files
+at `http://localhost:666`, and does anything live through `/api/*` endpoints so
+the tokens never reach the browser. No frameworks, no build step.
 
 ---
 
@@ -11,11 +15,10 @@ the poller writes, and asks `server.py` for anything that has to be live.
 
 | Tool | Purpose |
 |------|---------|
-| `bash` | `poll.sh` data fetcher |
-| `curl` | API calls to Bitbucket / Jira / SonarQube |
-| `jq` | JSON processing in `poll.sh` |
-| `python3` (3.9+) | local HTTP server (`server.py`) and `/api/*` endpoints |
-| macOS `launchd` | Auto-start and keep-alive |
+| `bash`, `curl`, `jq` | `scripts/poll.sh` data fetcher |
+| `python3` (3.9+) | `server.py` and the helper scripts |
+| macOS `launchd` | auto-start and keep-alive |
+| `afplay` (macOS) | build sounds |
 
 ```sh
 brew install jq
@@ -27,193 +30,245 @@ brew install jq
 
 ### 1 — Secrets
 
-Create the `secrets/` folder (gitignored):
+`scripts/setup.sh` creates `secrets/` (gitignored) with placeholder files:
 
 ```
 secrets/
-├── config           # URLs, username, Jira project keys
-├── bitbucket-token  # Bitbucket personal access token (plain text)
-├── jira-token       # Jira personal access token (plain text)
-└── sonar-token      # SonarQube personal access token (plain text)
+├── config           # URLs, project keys, JQL, optional page settings
+├── bitbucket-token  # Bitbucket personal access token
+├── jira-token       # Jira personal access token
+├── sonar-token      # SonarQube user token
+└── copilot-token    # GitHub token for the Copilot usage poll (add by hand)
 ```
+
+Tokens are plain text files. Generate them under Profile → Personal access
+tokens in each web UI.
 
 **`secrets/config`:**
 ```bash
 STASH_URL="https://your-bitbucket-server"
 JIRA_URL="https://your-jira-server"
-USERNAME="your-bitbucket-username"
 JIRA_PROJECTS="PROJ1,PROJ2"
+LAUNCHD_PREFIX="com.yourname.jiraffe"   # launchd agent labels
+
+# Kanban queries (exact Jira status names, mixed case):
+JQL_MINE="…"          # issues assigned to me (Open / Implement / QA / BV)
+JQL_IMPL="…"          # issues I moved out of Implement this sprint
+JQL_TQA="…"           # sprint issues labelled teknisk_QA
+JQL_NEXT_CURRENT="…"  # NEXT TASK candidates in the current sprint
+JQL_NEXT_FUTURE="…"   # NEXT TASK candidates in the next sprint
+
+# Optional: SonarQube, for PRs whose Sonar report in Bitbucket carries no link
+SONAR_URL="https://your-sonarqube-server"
 # Optional: which issues backlog.html lists (no sprint clause, no ORDER BY).
 # Default: open, unassigned-or-mine, not an Epic.
 JQL_BACKLOG="project in ($JIRA_PROJECTS) AND statusCategory != Done AND (assignee is EMPTY OR assignee = currentUser()) AND issuetype != Epic"
+# Optional: master builds for jenkins.html, one "Label|<job path>" per line
+# (path below Jenkins' ILT/ folder, which poll.sh assumes)
+JENKINS_URL="https://your-jenkins"
+MASTER_BUILDS="
+my-app|my-app/master
+"
+# Optional: apps versions.html shows, one "Label|PROJECT/repoSlug|base URL" per
+# line, {env} standing in for lt/ft/et/prep/prod. Each environment's Spring Boot
+# /actuator/info and /actuator/health are read live, plus master's newest tag.
+VERSION_APPS="
+my-app|PROJ/my-app|https://{env}.my-app.example.com
+"
+# Optional: links.html, one "Label|URL" per line. Zoom join links
+# (https://…zoom.us/j/…) open straight in the Zoom app.
+LINKS="
+Standup|https://example.zoom.us/j/123456789?pwd=…
+Support|https://your-jira-server/secure/Dashboard.jspa
+"
+# Optional: the org's monthly Copilot credit pool. copilot.html then shows each
+# user's share of it.
+COPILOT_POOL=57000
 ```
 
-`secrets/copilot-token` holds the GitHub token the Copilot leaderboard poll uses.
+### 2 — Start
 
-Tokens are plain text files with no trailing newline. Generate them from the
-respective web UIs under Profile → Personal access tokens.
+Three launchd agents live in `~/Library/LaunchAgents/<LAUNCHD_PREFIX>-*.plist`
+(written by hand, not by `setup.sh`):
 
-### 2 — Install and start
+| Agent | Runs |
+|---|---|
+| `-server` | `server.py` (KeepAlive; restarts itself when server.py changes) |
+| `-poll` | `scripts/poll.sh` (loops with its own timers) |
+| `-copilot` | `scripts/poll-copilot.sh` (every 4 h) |
 
 ```sh
-./setup.sh   # creates launchd plists in ~/Library/LaunchAgents/
-./start.sh   # loads both agents (HTTP server + poller)
+scripts/start.sh    # load the agents
+scripts/stop.sh     # unload them
+scripts/status.sh   # agent status + last poll log
 ```
 
-`setup.sh` is safe to re-run — it skips files that already exist.
+`POLL_ONCE=1 scripts/poll.sh` fetches every source once, from the terminal.
 
-To stop:
-```sh
-./stop.sh
-```
+### Test mode
 
-To restart (e.g. after config changes):
-```sh
-./stop.sh && ./setup.sh && ./start.sh
-```
-
-To check service status and last poll output:
-```sh
-./status.sh
-```
-
-### 3 — First data
-
-The poller starts automatically. To fetch immediately without waiting:
-```sh
-./poll.sh
-```
+`scripts/start-test.sh` serves the tracked fixtures in `data-test/` on port 664,
+next to the real dashboard.
 
 ---
 
 ## Configuration
 
-`config.yaml` controls all tunable settings. Changes take effect on the next
-poll cycle without restarting.
+`config.yaml`:
 
 ```yaml
-port: 666                      # HTTP server port
-
-poll_active_seconds: 15        # how often poll.sh loops
-poll_fetch_buffer_seconds: 2   # browser fetches this many seconds after next_poll
-
-poll_build_stale_seconds: 600  # re-fetch Jenkins/Sonar even if commit unchanged
-
-work_hours_enabled: false      # set true to pause polling outside work hours
-work_start_hour: 8
-work_end_hour: 18
+port: 666                      # HTTP server port (restart the server to change)
+poll_build_stale_seconds: 240  # re-fetch Jenkins/Sonar even if the commit is unchanged
 ```
 
 ---
 
-## GUI (browser)
+## Pages
 
-Open **http://localhost:666**.
+| Page | What it shows |
+|---|---|
+| `index.html` | Main board: my PRs, Jira kanban, time-tracking box, PRs and tech-QA for my review |
+| `backlog.html` | Jira backlog by sprint and epic, expandable issue detail |
+| `jenkins.html` | Master-branch builds (`MASTER_BUILDS`); failing ones flash |
+| `versions.html` | Deployed version and health per app per environment vs master's newest tag |
+| `copilot.html` | Org Copilot credit usage this month + my long-term history |
+| `time.html` | Timesheet from the tracker; writes worklogs to Jira |
+| `worklog.html` | Salary hours: worked + leave vs the norm per month/year |
+| `leave.html` | Vacation, sickness, child's sick days and other leave |
+| `links.html` | Personal quick links (`LINKS`) |
+| `sounds.html` | Temporary test page for the build sounds |
+
+Every page has a theme switcher (amber, C64, green, ice, paper, corkboard).
+
+---
+
+## Main board (index.html)
 
 ### Layout
 
 ```
-┌─ header: title · poll status · clock · ⟳ REFRESH ─────────────────┐
+┌─ header: nav · theme · NEXT TASK · ⟳ REFRESH ─────────────────────┐
 ├─ stats: My PRs │ For Review │ Jira Active │ Builds Failing ─────────┤
-├─ MY PULL REQUESTS ──────────────────────────┬─ ACTIVITY FEED ───────┤
-│  #id  repo  title            ✓appr/total    │  Jira quick stats      │
-│       commit  bugs smells vulns hots  N cmt │                        │
-├─ JIRA KANBAN ───────────────────────────────┤                        │
-│  [visible columns only — empty ones hidden] │                        │
-│  OPEN │ IMPLEMENT │ QA │ BV │ RESOLVED      │                        │
-│  — or, when nothing assigned to you: —      │                        │
-│  NEXT TASK (2×wide) │ QA │ BV │ RESOLVED   │                        │
-├─ PRs FOR MY REVIEW ─────────────────────────┴────────────────────────┤
-│  (collapses to title bar when empty)                                  │
-└────────────────────────────────────────────────────────────────────┘
+├─ MY PULL REQUESTS ──────────────────────────────────────────────────┤
+│  #id  repo  title          ✓appr/total  BUILD  QG  CONFLICT         │
+│       commit  bugs smells vulns hots  N cmt                          │
+├─ JIRA KANBAN ─────────────────────────────────────────┬─ TRACKING ──┤
+│  OPEN │ IMPLEMENT │ QA │ BV │ RESOLVED                │  issue       │
+│  — or, with nothing in Implement: —                   │  elapsed     │
+│  NEXT TASK (2×wide) │ OPEN │ QA │ BV │ RESOLVED       │  Idle  Stop  │
+├─ FOR MY REVIEW ───────────────────────────────────────┴──────────────┤
+│  TECH QA — NEEDS MY REVIEW  ·  PRs — NEEDS MY REVIEW                 │
+├─ status bar: session · last poll · data age · sprint · sound · POLL ─┤
 ```
 
-All kanban columns scroll independently. Empty columns are hidden automatically.
+Empty kanban columns are hidden and the rest expand to fill the width; each
+column scrolls on its own.
 
 ### Kanban columns
 
 | Column | What appears here |
 |--------|------------------|
-| OPEN | Issues assigned to you in Open or Reopened status |
-| IMPLEMENT | Issues assigned to you in Implement status |
-| NEXT TASK | Shown instead of OPEN+IMPLEMENT when you have nothing assigned — unassigned or your sprint Stories not yet in QA/BV/Resolved. Double width. |
-| QA | All sprint issues with label `teknisk_QA` (yours highlighted in green) + QA issues you implemented |
-| BV | Business Validation issues you implemented |
-| RESOLVED | Issues you moved out of Implement this sprint |
+| OPEN | Issues assigned to you in Open or Reopened |
+| IMPLEMENT | Issues assigned to you in Implement |
+| NEXT TASK | Replaces IMPLEMENT when you have nothing in Implement (or on demand, via the NEXT TASK button): unassigned Open/Reopened issues from `JQL_NEXT_CURRENT`, then the next sprint's (`JQL_NEXT_FUTURE`) dimmed. Double width. |
+| QA | Issues you implemented, now in Quality Assurance |
+| BV | Issues you implemented, now in Business Validation |
+| RESOLVED | Issues you moved out of Implement this sprint, now Resolved |
 
-Empty columns are hidden and the remaining ones expand to fill the width.
+`teknisk_QA` issues never sit in the kanban: unassigned ones (or yours) that you
+didn't implement show under **FOR MY REVIEW → TECH QA**.
 
-Issues with the `teknisk_QA` label are shown at the top of the QA column with a
-blue `TEKN·QA` badge. Those assigned to you have a green issue key. They are
-excluded from the Resolved column.
+Cards carry badges for: linked-PR state (in review / approved / all merged /
+draft), unseen activity by others (new comments, status changes, edits — click
+to mark seen), NOT IN SPRINT, blockers, and the time-tracker button.
 
 ### PR rows
 
-Each PR renders as two lines:
-
 ```
-#id  repo  title                     ✓approved/total  T:tasks  [BUILD]  [QG]
-     commithash  bugs:N  smells:N  vulns:N  hots:N  N cmt  [CONFLICT]
+#id  repo  title         DRAFT ✓approved/total NEEDS WORK T:tasks  BUILD  QG  CONFLICT
+     commithash  bugs:N  smells:N  vulns:N  hots:N  N cmt
 ```
 
-**Colours:**
-- Green — build passing / quality gate passed / all reviewers approved
-- Red — build failed / bugs or vulnerabilities present
-- Yellow — build in progress / code smells or hotspots
-- `CONFLICT` — merge conflict detected
-- `NEEDS WORK` — at least one reviewer requested changes
+- BUILD links to Jenkins, QG to SonarQube; a failing gate gets an **issues**
+  button listing the Sonar issues.
+- Green = passing / approved, red = failed / bugs or vulnerabilities, yellow =
+  building / smells or hotspots.
+- My PRs are sorted by latest activity. For Review leaves out renovate bots,
+  drafts, WIP titles, my own PRs and PRs anyone has already approved.
 
 ### Refreshing
 
-The browser auto-refreshes roughly 15 seconds after each poll completes — it
-reads the `next_poll` timestamp written into `bitbucket.json` and schedules the
-fetch for that moment. Hit **⟳ REFRESH** or **Cmd+R** for an immediate reload.
+The page never polls remote systems itself. Loading it, switching back to its
+tab, **⟳ REFRESH** and clicking around (at most once a minute) wake poll.sh,
+which then fetches every source at once. The page reloads whenever a data file
+changes (server.py pushes it over `/api/data-events`).
+
+Status bar: LAST POLL is when poll.sh last wrote Bitbucket data, DATA AGE turns
+red after 2 minutes (poller stopped or VPN down), POLL shows each source's next
+fetch and interval. Hover any item for an explanation.
+
+### Build sounds
+
+New outcomes on my PRs and master builds play a sound — build red, quality
+gate failed, all green, approved, gate passed, build green — one per reload,
+worst news first. The page renders the sound and POSTs it to
+`/api/play-sound`; server.py plays it on the Mac with `afplay` (browsers won't
+play audio on a page nobody clicked).
 
 ---
 
-## How it works
+## How polling works
 
-`poll.sh` runs in a continuous loop, sleeping `poll_active_seconds` between
-iterations. Each iteration:
+`scripts/poll.sh` runs one timer per source, each adapting to what is going on:
 
-1. **Bitbucket** — fetches your open PRs (author + reviewer roles) — 2 curls
-2. **Jenkins / SonarQube** — fetches build status and code quality per PR, but
-   only when the PR's commit hash changed, the last known build was `INPROGRESS`,
-   or the cached data is older than `poll_build_stale_seconds`. Results are cached
-   in `data/.build-cache.json`. Closed PRs are evicted from the cache automatically.
-3. **Jira** — four queries every iteration:
-   - Issues currently assigned to you (Open / Implement / QA / BV)
-   - Issues you moved out of Implement this sprint (now in QA / BV / Resolved)
-   - All sprint QA issues with label `teknisk_QA` (any assignee)
-   - Next task candidates: sprint Stories not in QA/BV/Resolved, unassigned or yours (shown when you have nothing in OPEN/IMPLEMENT)
-4. Writes `data/bitbucket.json` and `data/jira.json`
+| Source | Busy | Quiet |
+|---|---|---|
+| Bitbucket | 10 s while a PR build or Sonar analysis runs | 15 s after a change, doubling up to 2 min |
+| Jira | — | 1 min after a change, doubling up to 10 min |
+| Jenkins master builds | 20 s while one builds | 5 min |
 
-The browser reads those files. Anything that has to be live — issue detail,
-the backlog, PR comments, Jira images — goes through `server.py`'s `/api/*`
-endpoints, so the tokens never reach the browser.
+Dashboard activity (`POST /api/wake` touches `data/.poll-wake`) makes all three
+due at once and resets the back-off. If Bitbucket is unreachable the cycle is
+skipped and the last data stays. What each source fetches:
+
+1. **Bitbucket** — my open PRs (author + reviewer). Build status and Sonar data
+   per PR are only re-fetched when the commit changed, the build was
+   `INPROGRESS`, or the cache is older than `poll_build_stale_seconds`
+   (`data/.build-cache.json`). A failed request keeps the last known values.
+2. **Jira** — the `JQL_*` queries above, linked-PR state per card (Jira
+   dev-status + Bitbucket), recent activity by others, and the active sprint.
+3. **Jenkins** — `$JENKINS_URL/prometheus/` once, for every `MASTER_BUILDS` entry.
+
+Writes `data/bitbucket.json`, `jira.json`, `jenkins.json` and `poll-state.json`
+(atomically, via `.tmp` + `mv`).
+
+Copilot usage is polled separately by `scripts/poll-copilot.sh`, which also
+folds the leaderboard's snapshot archive into `data/copilot-history.json` —
+the API only serves 28 days, so that file is the only long-term record.
 
 ---
 
 ## Files
 
 ```
-dashboard/
-├── poll.sh               # data fetcher
-├── index.html            # browser GUI
-├── server.py             # HTTP server + /api/* endpoints
-├── config.yaml           # tunable settings
-├── setup.sh              # install launchd plists
-├── start.sh              # load launchd agents
-├── stop.sh               # unload launchd agents
-├── status.sh             # service status + last poll log
-├── sprint-worked-on.sh   # list issues you moved through Implement this sprint
-├── secrets/              # gitignored
-│   ├── config
-│   ├── bitbucket-token
-│   ├── jira-token
-│   └── sonar-token
-└── data/                 # gitignored — written by poll.sh
-    ├── bitbucket.json
-    ├── jira.json
-    └── .build-cache.json
+jiraffe/
+├── server.py          # HTTP server + /api/* endpoints (Python 3.9)
+├── config.yaml        # port, poll_build_stale_seconds
+├── *.html             # one file per page (see Pages)
+├── theme.css/.js      # shared themes + switcher
+├── sounds.js          # build sounds
+├── scripts/
+│   ├── poll.sh            # Bitbucket, Jira, Jenkins poller
+│   ├── poll-copilot.sh    # Copilot usage poller
+│   ├── parse-copilot.py   # leaderboard output -> data/copilot.json
+│   ├── copilot-history.py # leaderboard archive -> data/copilot-history.json
+│   ├── export-worklog.py  # every worked day -> data/worklog-export.csv
+│   ├── check-norm.mjs     # self-check of worklog.html's norm/leave rules
+│   ├── jira-issue.sh      # dump an issue as text
+│   ├── pr-comments.sh     # dump a PR's unresolved comment threads
+│   ├── sprint-worked-on.sh, next-tasks.sh
+│   └── setup.sh, start.sh, stop.sh, status.sh, start-test.sh
+├── data-test/         # fixtures for test mode
+├── secrets/           # gitignored
+└── data/              # gitignored — written by the pollers and server.py
 ```
