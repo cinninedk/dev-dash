@@ -13,6 +13,7 @@
     :root,
     [data-theme="amber"] {
       --sel-bg:rgba(255,212,85,0.07); --hover-bg:rgba(212,135,10,0.04); --row-border-soft:rgba(138,85,0,0.30); --dim-faint:rgba(138,85,0,0.50); --overlay:rgba(0,0,0,0.75); --scanline:rgba(0,0,0,0.07); --scanline-step:4px;
+      --bar:var(--border);  /* history chart bars; paper/c64 need --dim for 3:1 contrast */
     }
     [data-theme="green"] {
       --sel-bg:rgba(157,255,176,0.08); --hover-bg:rgba(40,200,90,0.05); --row-border-soft:rgba(20,90,40,0.30); --dim-faint:rgba(63,208,106,0.40); --overlay:rgba(0,0,0,0.78); --scanline:rgba(0,0,0,0.14); --scanline-step:3px;
@@ -22,9 +23,11 @@
     }
     [data-theme="paper"] {
       --sel-bg:rgba(120,90,30,0.10); --hover-bg:rgba(120,90,30,0.06); --row-border-soft:rgba(120,100,60,0.25); --dim-faint:rgba(122,106,69,0.50); --overlay:rgba(40,35,25,0.55); --scanline:rgba(0,0,0,0.015); --scanline-step:8px;
+      --bar:var(--dim);
     }
     [data-theme="c64"] {
       --sel-bg:rgba(180,170,245,0.12); --hover-bg:rgba(150,135,230,0.14); --row-border-soft:rgba(120,105,196,0.30); --dim-faint:rgba(155,143,224,0.45); --overlay:rgba(18,10,55,0.80); --scanline:rgba(0,0,0,0.10); --scanline-step:3px;
+      --bar:var(--dim);
     }
     [data-theme="board"] {
       --sel-bg:rgba(168,120,15,0.16); --hover-bg:rgba(90,65,35,0.10); --row-border-soft:rgba(90,65,35,0.22); --dim-faint:rgba(92,74,48,0.50); --overlay:rgba(40,30,18,0.55); --scanline:rgba(0,0,0,0); --scanline-step:8px;
@@ -84,16 +87,33 @@
     }
     #only-me-label:hover { color:var(--bright); }
 
-    #my-spark {
-      display:flex; align-items:flex-end; gap:10px; margin-bottom:18px;
-      border:1px solid var(--border); background:var(--panel); padding:10px 14px;
+    /* my daily credits over time: context bars + 7-day average accent line */
+    #history {
+      position:relative; margin-bottom:18px;
+      border:1px solid var(--border); background:var(--panel); padding:10px 14px 4px;
     }
-    #my-spark .spark-label { color:var(--dim); font-size:13px; letter-spacing:0.5px; flex-shrink:0; }
-    #my-spark svg { flex-shrink:0; overflow:visible; }
-    #my-spark .spark-bar { fill:var(--green); }
-    #my-spark .spark-bar.zero { fill:var(--dim-faint); }
-    #my-spark .spark-bar:hover { fill:var(--bright); }
-    #my-spark .spark-total { color:var(--bright); font-size:18px; font-weight:600; }
+    .hist-head { display:flex; align-items:baseline; gap:4px 18px; flex-wrap:wrap; margin-bottom:6px; }
+    .hist-title { color:var(--bright); font-size:15px; letter-spacing:1px; }
+    .hist-stat { color:var(--dim); font-size:14px; }
+    .hist-stat b { color:var(--text); font-weight:600; }
+    .hist-legend { margin-left:auto; display:flex; gap:14px; align-items:center; color:var(--dim); font-size:13px; }
+    .hist-legend a { color:var(--dim); }
+    .key { display:inline-block; margin-right:6px; vertical-align:middle; }
+    .key.bar { width:8px; height:12px; background:var(--bar); border-radius:2px 2px 0 0; }
+    .key.line { width:16px; height:2px; background:var(--bright); }
+    .hist-chart svg { display:block; overflow:visible; }
+    .h-grid { stroke:var(--row-border-soft); shape-rendering:crispEdges; }
+    .h-tick { fill:var(--dim); font-size:13px; font-family:var(--font); }
+    .h-gap { fill:var(--sel-bg); }
+    .h-bar { fill:var(--bar); }
+    .h-bar.on { fill:var(--text); }
+    .h-avg { fill:none; stroke:var(--bright); stroke-width:2; stroke-linejoin:round; stroke-linecap:round; }
+    .h-xhair { stroke:var(--dim); shape-rendering:crispEdges; }
+    #hist-tip {
+      position:absolute; z-index:5; pointer-events:none; white-space:nowrap;
+      background:var(--bg); border:1px solid var(--border); padding:4px 10px; font-size:14px; color:var(--dim);
+    }
+    #hist-tip b { color:var(--bright); font-size:16px; }
 
     .rows { border:1px solid var(--border); overflow-x:auto; }
     table { border-collapse:collapse; width:100%; font-size:16px; white-space:nowrap; }
@@ -141,7 +161,7 @@
 </header>
 
 <div id="summary"></div>
-<div id="my-spark" hidden></div>
+<div id="history" hidden></div>
 <div id="content">Loading…</div>
 
 <script>
@@ -162,32 +182,152 @@ function fmt(n) { return n == null ? '' : n.toLocaleString(); }
 const ONLY_ME_KEY = 'jiraffe-copilot-only-me';
 let lastData = null;
 
-function sparkline(dayCols, daily) {
-  const w = 6, gap = 2, h = 40;
-  const max = Math.max(1, ...daily.map(v => v || 0));
-  const bars = dayCols.map((d, i) => {
-    const v = daily[i] || 0;
-    const barH = Math.max(1, Math.round((v / max) * h));
-    const x = i * (w + gap);
-    return `<rect class="spark-bar${v === 0 ? ' zero' : ''}" x="${x}" y="${h - barH}" width="${w}" height="${barH}"><title>day ${esc(d)}: ${fmt(daily[i])}</title></rect>`;
-  }).join('');
-  const width = dayCols.length * (w + gap);
-  return `<svg width="${width}" height="${h}" viewBox="0 0 ${width} ${h}">${bars}</svg>`;
+// ── my daily credits over time ──
+// data/copilot-history.json (day -> credits) is kept by scripts/copilot-history.py
+// from copilot-leaderboard's archive. A day missing from it has no data (the
+// poller was off), drawn as a gap, never as a zero.
+const DAY_MS = 86400000;
+let history = {}, series = [], geo = null;
+
+function dailySeries(hist) {
+  const days = Object.keys(hist).sort();
+  const out = [];
+  if (!days.length) return out;
+  for (let t = Date.parse(days[0]); t <= Date.parse(days.at(-1)); t += DAY_MS) {
+    const day = new Date(t).toISOString().slice(0, 10);
+    out.push({day, v: hist[day] ?? null});
+  }
+  // 7-day rolling average over 7 known days only, so the line breaks at a gap
+  out.forEach((p, i) => {
+    const win = out.slice(Math.max(0, i - 6), i + 1);
+    p.avg = win.length === 7 && win.every(q => q.v != null) ? win.reduce((s, q) => s + q.v, 0) / 7 : null;
+  });
+  return out;
 }
 
-function renderSpark(data) {
-  const daily = data.my_daily || [];
-  const dayCols = data.day_columns || [];
-  if (!daily.length || !dayCols.length) {
-    el('my-spark').hidden = true;
-    return;
-  }
-  el('my-spark').hidden = false;
-  el('my-spark').innerHTML = `
-    <span class="spark-label">MY CREDITS<br>THIS MONTH</span>
-    ${sparkline(dayCols, daily)}
-    <span class="spark-total">${fmt(data.my_month_total)}</span>`;
+// per-day mean over the known days, or null when fewer than 14 are known
+function meanPerDay(pts) {
+  const v = pts.filter(p => p.v != null).map(p => p.v);
+  return v.length >= 14 ? v.reduce((a, b) => a + b, 0) / v.length : null;
 }
+
+function niceStep(max) {
+  const raw = max / 4, mag = 10 ** Math.floor(Math.log10(raw));
+  return [1, 2, 2.5, 5, 10].map(m => m * mag).find(s => s >= raw);
+}
+
+// 4px rounded data end, square at the baseline
+function barPath(x, w, yTop, yBase) {
+  const r = Math.min(4, w / 2, yBase - yTop);
+  return `M${x},${yBase}V${yTop + r}Q${x},${yTop} ${x + r},${yTop}H${x + w - r}Q${x + w},${yTop} ${x + w},${yTop + r}V${yBase}Z`;
+}
+
+const dayLabel = (day, opts) => new Date(day + 'T00:00:00Z').toLocaleDateString('en-GB', {...opts, timeZone: 'UTC'});
+
+// ponytail: one bar per day for the whole history; switch to weekly bars once it passes ~a year
+function historySvg(width) {
+  const H = 170, L = 56, R = 6, T = 8, B = 24;   // insets: y ticks left, month labels below
+  const pw = width - L - R, ph = H - T - B, n = series.length;
+  const max = Math.max(1, ...series.map(p => p.v || 0));
+  const step = niceStep(max), top = Math.ceil(max / step) * step;
+  const slot = pw / n, bw = Math.max(1, Math.min(24, slot - 2));
+  const y = v => T + ph - v / top * ph;
+  geo = {L, T, ph, slot};
+  let s = '';
+  for (let v = 0; v <= top; v += step) {
+    s += `<line class="h-grid" x1="${L}" x2="${width - R}" y1="${y(v)}" y2="${y(v)}"/>`
+      + `<text class="h-tick" x="${L - 8}" y="${y(v) + 4}" text-anchor="end">${fmt(v)}</text>`;
+  }
+  // months along the bottom, each label centred under its own days
+  const months = [];
+  series.forEach((p, i) => {
+    const m = p.day.slice(0, 7);
+    if (months.at(-1)?.m === m) months.at(-1).to = i; else months.push({m, from: i, to: i});
+  });
+  months.forEach((g, k) => {
+    const x0 = L + g.from * slot, w = (g.to - g.from + 1) * slot;
+    if (k) s += `<line class="h-grid" x1="${x0}" x2="${x0}" y1="${T + ph}" y2="${H - 4}"/>`;
+    const label = dayLabel(g.m + '-01', {month: 'short'}).slice(0, 3) + (k === 0 || g.m.endsWith('-01') ? ' ' + g.m.slice(0, 4) : '');
+    if (w >= 40) s += `<text class="h-tick" x="${x0 + w / 2}" y="${H - 6}" text-anchor="middle">${label}</text>`;
+  });
+  // runs of days with no data
+  let gapFrom = null;
+  series.forEach((p, i) => {
+    if (p.v == null) { gapFrom ??= i; return; }
+    if (gapFrom == null) return;
+    const x0 = L + gapFrom * slot, w = (i - gapFrom) * slot;
+    s += `<rect class="h-gap" x="${x0}" y="${T}" width="${w}" height="${ph}"/>`
+      + (w >= 60 ? `<text class="h-tick" x="${x0 + w / 2}" y="${T + ph / 2}" text-anchor="middle">no data</text>` : '');
+    gapFrom = null;
+  });
+  series.forEach((p, i) => {
+    if (p.v > 0) s += `<path class="h-bar" data-i="${i}" d="${barPath(L + i * slot + (slot - bw) / 2, bw, y(p.v), y(0))}"/>`;
+  });
+  let line = '', pen = false;
+  series.forEach((p, i) => {
+    if (p.avg == null) { pen = false; return; }
+    line += `${pen ? 'L' : 'M'}${(L + (i + 0.5) * slot).toFixed(1)},${y(p.avg).toFixed(1)}`;
+    pen = true;
+  });
+  s += `<path class="h-avg" d="${line}"/><line class="h-xhair" y1="${T}" y2="${T + ph}" visibility="hidden"/>`;
+  const last = series.at(-1);
+  return `<svg width="${width}" height="${H}" role="img" aria-label="My daily AI credits, ${esc(dayLabel(series[0].day, {dateStyle: 'medium'}))}`
+    + ` to ${esc(dayLabel(last.day, {dateStyle: 'medium'}))}${last.avg != null ? `, 7-day average now ${fmt(Math.round(last.avg))}` : ''}">${s}</svg>`;
+}
+
+function renderHistory() {
+  const box = el('history');
+  series = dailySeries(history);
+  box.hidden = !series.length;
+  if (!series.length) return;
+  const recent = meanPerDay(series.slice(-28)), before = meanPerDay(series.slice(-56, -28));
+  const delta = recent != null && before ? Math.round((recent / before - 1) * 100) : null;
+  box.innerHTML = `
+    <div class="hist-head">
+      <span class="hist-title">MY DAILY AI CREDITS</span>
+      <span class="hist-stat">this month <b>${fmt(lastData?.my_month_total)}</b></span>
+      ${recent != null ? `<span class="hist-stat">last 28 days <b>${fmt(Math.round(recent))}</b>/day${delta != null
+        ? ` · <b>${delta >= 0 ? '↑' : '↓'} ${Math.abs(delta)}%</b> vs the 28 before` : ''}</span>` : ''}
+      <span class="hist-legend">
+        <span><i class="key bar"></i>daily</span>
+        <span><i class="key line"></i>7-day average</span>
+        <a href="data/copilot-history.json" target="_blank" rel="noopener" title="every saved day as JSON">data ↗</a>
+      </span>
+    </div>
+    <div class="hist-chart"></div>
+    <div id="hist-tip" hidden></div>`;
+  const chart = box.querySelector('.hist-chart');
+  chart.innerHTML = historySvg(chart.clientWidth);
+}
+
+// crosshair + tooltip: snaps to the nearest day, so a thin bar needn't be hit dead-on
+el('history').addEventListener('pointermove', e => {
+  const svg = el('history').querySelector('svg');
+  if (!svg || !geo) return;
+  const r = svg.getBoundingClientRect(), box = el('history').getBoundingClientRect();
+  const i = Math.floor((e.clientX - r.left - geo.L) / geo.slot);
+  const p = series[i], tip = el('hist-tip'), xh = svg.querySelector('.h-xhair');
+  svg.querySelector('.h-bar.on')?.classList.remove('on');
+  if (!p || e.clientY > r.top + geo.T + geo.ph) { tip.hidden = true; xh.setAttribute('visibility', 'hidden'); return; }
+  const x = geo.L + (i + 0.5) * geo.slot;
+  xh.setAttribute('x1', x);
+  xh.setAttribute('x2', x);
+  xh.setAttribute('visibility', 'visible');
+  svg.querySelector(`.h-bar[data-i="${i}"]`)?.classList.add('on');
+  tip.innerHTML = `<b>${p.v == null ? 'no data' : `${fmt(p.v)} credits`}</b><br>`
+    + esc(dayLabel(p.day, {weekday: 'short', day: 'numeric', month: 'short', year: 'numeric'}))
+    + (p.avg != null ? ` · 7-day avg ${fmt(Math.round(p.avg))}` : '');
+  tip.hidden = false;
+  const left = r.left - box.left + x;
+  tip.style.left = `${left + 12 + tip.offsetWidth > box.width ? left - 12 - tip.offsetWidth : left + 12}px`;
+  tip.style.top = `${r.top - box.top + geo.T}px`;
+});
+el('history').addEventListener('pointerleave', () => {
+  el('hist-tip')?.setAttribute('hidden', '');
+  el('history').querySelector('.h-xhair')?.setAttribute('visibility', 'hidden');
+  el('history').querySelector('.h-bar.on')?.classList.remove('on');
+});
+window.addEventListener('resize', () => { if (series.length) renderHistory(); });
 
 function render(data) {
   lastData = data;
@@ -195,7 +335,6 @@ function render(data) {
   if (!allUsers.length) {
     el('content').innerHTML = `<div class="empty">No <code>data/copilot.json</code> yet — let
       <code>scripts/poll-copilot.sh</code> run once (it fires every 4h via launchd).</div>`;
-    el('my-spark').hidden = true;
     document.title = BASE_TITLE;
     return;
   }
@@ -209,13 +348,16 @@ function render(data) {
   el('summary').innerHTML = `<strong>${esc(data.org || '')}</strong> — ${esc(data.month_label || '')}
     ${data.summary ? ' · ' + esc(data.summary) : ''}`;
 
-  renderSpark(data);
-
   const onlyMe = el('only-me-toggle').checked;
   const users = onlyMe ? allUsers.filter(u => u.user === data.my_user || u.user === 'All') : allUsers;
 
   const dayCols = data.day_columns || [];
-  const header = `<tr><th>User</th><th>Month total</th>${dayCols.map(d => `<th>${esc(d)}</th>`).join('')}</tr>`;
+  // share of the org's monthly credit pool (COPILOT_POOL in secrets/config); the "All" row is the pool used so far
+  const pool = data.pool;
+  // share of everything used this month (the "All" row's total)
+  const used = allUsers.find(u => u.user === 'All')?.month_total;
+  const pct = (n, of) => `<td class="${n ? '' : 'zero'}">${(n / of * 100).toFixed(1)}%</td>`;
+  const header = `<tr><th>User</th><th>Month total</th>${used ? '<th>% of total</th>' : ''}${pool ? `<th title="of ${fmt(pool)} credits">% of pool</th>` : ''}${dayCols.map(d => `<th>${esc(d)}</th>`).join('')}</tr>`;
 
   const rows = users.map(u => {
     const cls = u.user === 'All' ? 'row-all' : (u.user === data.my_user ? 'row-me' : '');
@@ -224,7 +366,7 @@ function render(data) {
       if (v == null) return `<td class="empty-cell">–</td>`;
       return `<td class="${v === 0 ? 'zero' : ''}">${fmt(v)}</td>`;
     }).join('');
-    return `<tr class="${cls}"><td class="user">${esc(u.user)}</td><td class="total">${fmt(u.month_total)}</td>${cells}</tr>`;
+    return `<tr class="${cls}"><td class="user">${esc(u.user)}</td><td class="total">${fmt(u.month_total)}</td>${used ? pct(u.month_total, used) : ''}${pool ? pct(u.month_total, pool) : ''}${cells}</tr>`;
   }).join('');
 
   el('content').innerHTML = `<div class="rows"><table><thead>${header}</thead><tbody>${rows}</tbody></table></div>`;
@@ -237,8 +379,11 @@ function onOnlyMeChange() {
 
 async function load() {
   try {
-    const data = await fetch('data/copilot.json', {cache: 'no-store'}).then(r => r.json());
+    const [data, hist] = await Promise.all(['data/copilot.json', 'data/copilot-history.json']
+      .map(f => fetch(f, {cache: 'no-store'}).then(r => r.ok ? r.json() : {})));
+    history = hist;
     render(data);
+    renderHistory();
   } catch (e) {
     el('content').innerHTML = `<div class="empty">No <code>data/copilot.json</code> yet — let
       <code>scripts/poll-copilot.sh</code> run once (it fires every 4h via launchd).</div>`;

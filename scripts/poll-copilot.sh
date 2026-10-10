@@ -5,8 +5,11 @@
 # our own Bitbucket/Jira — no point fetching it every 60s like the rest.
 
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
+source "$ROOT/secrets/config"   # COPILOT_POOL
 OUT="$ROOT/data/copilot.json"
 MY_USER="nine-cin"
+# copilot-leaderboard's snapshot archive (archive_dir in ~/.config/copilot-leaderboard.toml)
+ARCHIVE="$HOME/src/copilot-leaderboard-stil/archive"
 
 # launchd doesn't source .zshrc, so PATH needs setting explicitly here rather
 # than relying on the shell profile.
@@ -23,4 +26,9 @@ if [ $STATUS -ne 0 ]; then
     exit 1
 fi
 
-echo "$RAW" | MY_USER="$MY_USER" OUT="$OUT" python3 "$ROOT/scripts/parse-copilot.py"
+echo "$RAW" | MY_USER="$MY_USER" COPILOT_POOL="$COPILOT_POOL" OUT="$OUT" python3 "$ROOT/scripts/parse-copilot.py"
+PARSE=$?
+# Runs even when the table parse breaks: the daily history must keep growing.
+MY_USER="$MY_USER" ARCHIVE="$ARCHIVE" OUT="$ROOT/data/copilot-history.json" \
+    python3 "$ROOT/scripts/copilot-history.py" || exit 1
+exit $PARSE

@@ -84,6 +84,7 @@ data = {
     'my_user': my_user,
     'my_month_total': mine['month_total'] if mine else None,
     'my_daily': mine['daily'] if mine else [],
+    'pool': to_int(os.environ.get('COPILOT_POOL', '')),  # org's monthly credits, secrets/config
     'users': users,
 }
 
