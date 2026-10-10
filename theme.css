@@ -116,3 +116,9 @@
   --frame-w:         12px;
   --frame-c:         #6e4a2a;
 }
+
+/* Scrollbars in the theme's colours instead of the OS's white. */
+* { scrollbar-color: var(--border) var(--panel); }
+::-webkit-scrollbar { width: 10px; height: 10px; background: var(--panel); }
+::-webkit-scrollbar-thumb { background: var(--border); border: 2px solid var(--panel); }
+::-webkit-scrollbar-corner { background: var(--panel); }
