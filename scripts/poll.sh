@@ -44,7 +44,7 @@ get_build_info() {
     local commit="$1"
     curl -s "${CURL_OPTS[@]}" -H "Authorization: Bearer $PASSWORD" \
         "$STASH_URL/rest/build-status/1.0/commits/$commit" \
-        | jq -r '
+        | jq -r 'select(has("values")) |      # an error response prints nothing = failed
             (.values[0].state // "NO_BUILD"),
             (.values[0].name  // "Unknown"),
             (.values[0].url   // "")'
@@ -53,11 +53,17 @@ get_build_info() {
 # Up to three curls: emits six lines — "qg_raw<TAB>sonar_url", bugs, smells,
 # vulns, hotspots, building (true/false)
 get_sonar_info() {
-    local project="$1" slug="$2" commit="$3" cached_sonar_url="$4"
+    local project="$1" slug="$2" commit="$3" cached_sonar_url="$4" branch="$5"
     local reports
     reports=$(curl -s "${CURL_OPTS[@]}" -H "Authorization: Bearer $PASSWORD" \
         "$STASH_URL/rest/insights/1.0/projects/$project/repos/$slug/commits/$commit/reports" \
         | LC_ALL=C sed 's/\\uD[89ABab][0-9A-Fa-f][0-9A-Fa-f]\\u[Dd][CDEFcdef][0-9A-Fa-f][0-9A-Fa-f]/?/g')
+    # A failed request (timeout, error page) is not "no report": say so, so the
+    # caller keeps what it knew instead of caching an empty result.
+    if ! echo "$reports" | jq -e '.values' >/dev/null 2>&1; then
+        printf 'FETCHFAIL\t\n0\n0\n0\n0\nfalse\n'
+        return
+    fi
 
     local row
     row=$(echo "$reports" | jq -r '
@@ -67,16 +73,22 @@ get_sonar_info() {
             ((.reporter // "") | ascii_downcase | test("sonar"))
         )][0] as $r |
         if $r != null then [
-            ($r.link | if type == "string" and startswith("http") then . else "" end),
+            ($r.link | if type == "string" and startswith("http") then . else "NOLINK" end),
             ($r.data // [] | map(select(.title | test("[Bb]ugs")))     | .[0].value // 0 | tostring),
             ($r.data // [] | map(select(.title | test("[Ss]mells")))   | .[0].value // 0 | tostring),
             ($r.data // [] | map(select(.title | test("[Vv]ulnerab"))) | .[0].value // 0 | tostring),
             ($r.data // [] | map(select(.title | test("[Hh]otspot")))  | .[0].value // 0 | tostring)
         ] | join("\t")
-        else "\t0\t0\t0\t0" end')
+        else "NOREPORT\t0\t0\t0\t0" end')
 
-    local sonar_link bugs smells vulns hotspots
+    # Markers, not empty fields: read with IFS=tab merges an empty first field
+    # into the next one.
+    local sonar_link bugs smells vulns hotspots report_found=true
     IFS=$'\t' read -r sonar_link bugs smells vulns hotspots <<< "$row"
+    case "$sonar_link" in
+        NOREPORT) report_found=false; sonar_link="" ;;
+        NOLINK)   sonar_link="" ;;
+    esac
 
     local qg_raw="NONE"
     local building="false"
@@ -86,7 +98,21 @@ get_sonar_info() {
     # (from cache) — that's still enough to ask Sonar "are you analyzing
     # this branch right now?" even before this commit's report shows up.
     local lookup_url="$sonar_link"
-    if [ -z "$lookup_url" ] || [ "$lookup_url" = "null" ]; then
+    # Some reports come without a link. The Sonar project is per repo and the
+    # branch is the PR's own, so look the project up by repo name (exact key
+    # match) and build the link — it also makes the QG badge clickable.
+    if [ -z "$lookup_url" ] && $report_found && [ -n "$SONAR_URL" ] && [ -n "$branch" ]; then
+        local key
+        key=$(curl -s "${CURL_OPTS[@]}" -H "Authorization: Bearer $SONAR_PASSWORD" --get \
+            --data-urlencode "qualifiers=TRK" --data-urlencode "q=$slug" \
+            "$SONAR_URL/api/components/search" \
+            | jq -r --arg s "$slug" '[.components[]?.key | select(. == $s or endswith(":" + $s))][0] // empty' 2>/dev/null)
+        if [ -n "$key" ]; then
+            lookup_url="$SONAR_URL/dashboard?id=$(jq -rn --arg v "$key" '$v|@uri')&branch=$(jq -rn --arg v "$branch" '$v|@uri')"
+            sonar_link="$lookup_url"
+        fi
+    fi
+    if [ -z "$lookup_url" ]; then
         lookup_url="$cached_sonar_url"
     fi
 
@@ -99,13 +125,29 @@ get_sonar_info() {
             | python3 -c "import sys,urllib.parse; print(urllib.parse.unquote(sys.stdin.read().strip()))" 2>/dev/null)
 
         if [ -n "$sonar_proj" ]; then
-            if [ -n "$sonar_link" ] && [ "$sonar_link" != "null" ]; then
+            if $report_found && [ -n "$sonar_link" ]; then
                 qg_raw=$(curl -s "${CURL_OPTS[@]}" -H "Authorization: Bearer $SONAR_PASSWORD" \
                     --get \
                     --data-urlencode "projectKey=$sonar_proj" \
                     ${sonar_branch:+--data-urlencode "branch=$sonar_branch"} \
                     "$sonar_base/api/qualitygates/project_status" \
                     | jq -r '.projectStatus.status // "NONE"')
+
+                # Counts from the same Sonar analysis as the gate (new code, like
+                # the gate judges). The commit's Bitbucket report can describe a
+                # different analysis than Sonar's latest — right after a push, or
+                # while Sonar is still processing — which showed smells next to
+                # a passing gate. The report's numbers remain the fallback.
+                local measures
+                measures=$(curl -s "${CURL_OPTS[@]}" -H "Authorization: Bearer $SONAR_PASSWORD" \
+                    --get \
+                    --data-urlencode "component=$sonar_proj" \
+                    ${sonar_branch:+--data-urlencode "branch=$sonar_branch"} \
+                    --data-urlencode "metricKeys=new_bugs,new_code_smells,new_vulnerabilities,new_security_hotspots" \
+                    "$sonar_base/api/measures/component" \
+                    | jq -r '(.component.measures // []) | map({(.metric): (.value // .period.value // "0")}) | add // {}
+                             | if length == 4 then [.new_bugs, .new_code_smells, .new_vulnerabilities, .new_security_hotspots] | join("\t") else empty end' 2>/dev/null)
+                [ -n "$measures" ] && IFS=$'\t' read -r bugs smells vulns hotspots <<< "$measures"
             fi
 
             # Compute Engine queue for this branch: PENDING/IN_PROGRESS means
@@ -202,7 +244,7 @@ process_prs_to_json() {
             c_age=999999
             if [ -n "$c_fetched" ] && [ "$c_fetched" != "null" ]; then
                 local ts
-                ts=$(date -jf "%Y-%m-%dT%H:%M:%SZ" "$c_fetched" +%s 2>/dev/null || echo 0)
+                ts=$(date -juf "%Y-%m-%dT%H:%M:%SZ" "$c_fetched" +%s 2>/dev/null || echo 0)   # UTC, not local
                 [ "${ts:-0}" -gt 0 ] && c_age=$(( $(date +%s) - ts ))
             fi
             if [ "$commit" = "$c_commit" ] && \
@@ -241,11 +283,34 @@ process_prs_to_json() {
                 IFS= read -r vulns
                 IFS= read -r hotspots
                 IFS= read -r sonar_building
-            } < <(get_sonar_info "$project" "$slug" "$commit" "$prev_sonar_url_for_lookup")
+            } < <(get_sonar_info "$project" "$slug" "$commit" "$prev_sonar_url_for_lookup" "$branch")
             qg_raw="${qg_line%%	*}"
             sonar_url="${qg_line#*	}"
             [[ "$sonar_url" =~ ^https?:// ]] || sonar_url=""
             qg=$(qg_label "$qg_raw")
+
+            # A request that failed (timeout, error page) returns nothing, not
+            # "no build" / "no report". Keep the last known values for that part
+            # and don't cache this fetch, so the next cycle asks again. (Caching
+            # it used to show a green PR as build "" / QG – for minutes.)
+            local fetch_failed=false
+            if [ -z "$build_state" ]; then
+                fetch_failed=true
+                build_state=$(echo "$cached" | jq -r '.build_state // "NO_BUILD"')
+                build_name=$(echo "$cached"  | jq -r '.build_name // "Unknown"')
+                build_url=$(echo "$cached"   | jq -r '.build_url // ""')
+            fi
+            if [ "$qg_raw" = "FETCHFAIL" ]; then
+                fetch_failed=true
+                qg=$(echo "$cached"        | jq -r '.qg_label // "–"')
+                sonar_url=$(echo "$cached" | jq -r '.sonar_url // ""')
+                bugs=$(echo "$cached"      | jq -r '.bugs // 0')
+                smells=$(echo "$cached"    | jq -r '.smells // 0')
+                vulns=$(echo "$cached"     | jq -r '.vulns // 0')
+                hotspots=$(echo "$cached"  | jq -r '.hotspots // 0')
+                sonar_building=$(echo "$cached" | jq -r '.sonar_building // false')
+            fi
+            $fetch_failed && echo "[$(date '+%H:%M:%S')] ⚠ PR #$id: build/Sonar request failed — kept last known, retrying next cycle" >&2
 
             # If build is INPROGRESS and no Sonar report attached yet, keep last known QG data
             if [ "$build_state" = "INPROGRESS" ] && [ -z "$sonar_url" ] && [ "$cached" != "null" ]; then
@@ -267,7 +332,7 @@ process_prs_to_json() {
             fi
 
             # Append cache entry (one compact JSON object per line)
-            jq -cn \
+            $fetch_failed || jq -cn \
                 --argjson id "$id" \
                 --arg commit "$commit" \
                 --arg build_state "$build_state" \
