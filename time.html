@@ -920,9 +920,10 @@ function viewedWeekRange() {
   const monday = new Date(now);
   monday.setDate(now.getDate() - ((now.getDay() + 6) % 7) + weekOffset * 7);
   monday.setHours(0, 0, 0, 0);
-  const friday = new Date(monday);
-  friday.setDate(monday.getDate() + 4);
-  return { start: localDateStr(monday), end: localDateStr(friday) };
+  // through Sunday, so weekend work is listed and synced with its week
+  const sunday = new Date(monday);
+  sunday.setDate(monday.getDate() + 6);
+  return { start: localDateStr(monday), end: localDateStr(sunday) };
 }
 
 function viewedMonthYM() {
@@ -1236,16 +1237,21 @@ function renderDailyPanel() {
     dayTotals[d] = (dayTotals[d] || 0) + roundQuarter(secs);
   }
 
-  const DAY_NAMES = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri'];
+  // Saturday and Sunday get a box only when they have tracked time (or are
+  // today, so a weekend session can be followed); they always count in WEEK.
+  const DAY_NAMES = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
   let weekTotal = 0;
   let html = '';
-  for (let i = 0; i < 5; i++) {
+  let lastShown = new Date(monday);
+  for (let i = 0; i < 7; i++) {
     const d = new Date(monday);
     d.setDate(monday.getDate() + i);
     const ds = localDateStr(d);
     const secs = dayTotals[ds] || 0;
     weekTotal += secs;
     const isToday = ds === todayStr;
+    if (i >= 5 && !secs && !isToday) continue;
+    lastShown = d;
     const isSelected = ds === selectedDay;
     const label = `${DAY_NAMES[i]} ${String(d.getDate()).padStart(2, '0')}`;
     const timeStr = secs > 0 ? formatHm(secs) : '–';
@@ -1271,8 +1277,7 @@ function renderDailyPanel() {
   }
 
   const weekStart = monday;
-  const weekEnd = new Date(monday);
-  weekEnd.setDate(monday.getDate() + 4);
+  const weekEnd = lastShown;
   const fmt = d => `${String(d.getDate()).padStart(2,'0')}/${String(d.getMonth()+1).padStart(2,'0')}`;
   document.getElementById('week-label').textContent =
     weekOffset === 0 ? 'THIS WEEK' : `${fmt(weekStart)}–${fmt(weekEnd)}`;
