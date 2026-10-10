@@ -665,6 +665,7 @@
     .sb:last-child { border-right: none; border-left: 1px solid var(--border); }
     .sb span { color: var(--text); }
     .sb.stale, .sb.stale span { color: var(--red); }
+    #sb-lastsound:empty { display: none; }
     #sb-poll .busy { color: var(--yellow); }
     .sb-right { margin-left: auto; }
     #sprint-dates:empty { display: none; }
@@ -735,6 +736,7 @@
     [data-theme="board"] .pr-detail { color: var(--dim); }
   </style>
   <script src="theme.js"></script>
+  <script src="sounds.js"></script>
 </head>
 <body>
 
@@ -761,6 +763,7 @@
       <a href="copilot.html">🤖 COPILOT <span id="nav-copilot-total">–</span></a>
       <a href="backlog.html">🗒 BACKLOG</a>
       <a href="links.html">🔗 LINKS</a>
+      <a href="sounds.html">🔊 SOUNDS</a>
     </nav>
     <div id="not-tracking">● NOT TRACKING</div>
     <select id="theme-select" title="Theme" onchange="setTheme(this.value)">
@@ -854,6 +857,7 @@
     <div class="sb" title="When the background poller (poll.sh) last wrote fresh Bitbucket data. See POLL for how often it fetches; the page reloads as soon as it writes.">LAST POLL <span id="sb-lastpoll">–</span></div>
     <div class="sb" id="sb-age-box" title="Time since LAST POLL. Turns red after 2 min: the poller has stopped or can't reach Bitbucket (VPN down?) — the board is showing old data.">DATA AGE <span id="sb-age">–</span></div>
     <div class="sb" id="sprint-dates" title="Active sprint, from Jira"></div>
+    <div class="sb" id="sb-lastsound" title="The last build sound the dashboard played (on the Mac, via the dashboard server). If it shows but you heard nothing, check the Mac's volume and output device."></div>
     <div class="sb" id="sb-poll" title="How often poll.sh fetches each source: time to the next fetch / current interval. ⚡ = fast because a build or Sonar analysis is running. Quiet sources back off: Bitbucket 15 s → 2 min, Jira 1 → 10 min, Jenkins 5 min. Any activity on this page resets them.">POLL <span id="sb-poll-v">–</span></div>
     <div class="sb sb-right" id="poll-status" title="What the page is doing: ↺ time = showing data from that poll · fetching… = re-reading the data files · polling… = a full poll is running (REFRESH, or page load)">–</div>
     <div class="sb"><span id="sb-clock"></span></div>
@@ -1713,12 +1717,14 @@
     document.getElementById('poll-status').textContent = '↺ fetching…';
     try {
       const t = Date.now();
-      const [bb, jira] = await Promise.all([
+      const [bb, jira, jk] = await Promise.all([
         fetch(`data/bitbucket.json`, {cache:'no-store'}).then(r => { if (!r.ok) throw r; return r.json(); }),
         fetch(`data/jira.json`,      {cache:'no-store'}).then(r => { if (!r.ok) throw r; return r.json(); }),
+        fetch(`data/jenkins.json`,   {cache:'no-store'}).then(r => r.ok ? r.json() : null).catch(() => null),
       ]);
       bbData = bb;
       jiraData = jira;
+      checkSounds(bb, jk);
       if (bb.stash_url)   STASH = bb.stash_url;
       if (jira.jira_url)  JIRA  = jira.jira_url;
       await loadTimetrack();
@@ -1738,6 +1744,68 @@
       ['my-prs-list','reviewer-prs-list'].forEach(id => {
         document.getElementById(id).innerHTML = '<div class="empty-msg">⚠ run ./poll.sh to populate data/</div>';
       });
+    }
+  }
+
+  // ── Build sounds ────────────────────────────────────────────────────────
+  // Each reload turns the data into signatures of finished outcomes; a
+  // signature not seen on the previous load plays its sound. Keys carry the
+  // build run (PR build URL has the build number, master builds their start
+  // time), so a rebuild that fails again sounds again, while a build that just
+  // stays red doesn't repeat. The first load is the baseline: nothing plays for
+  // what was already true.
+  let soundSeen = null;            // Set of signatures, null until first load
+
+  // signature -> what it was about, for the status bar note
+  function soundSignatures(bb, jk) {
+    const sigs = new Map();
+    for (const p of bb.my_prs || []) {
+      const run = p.build_url || `${p.slug}#${p.id}@${p.commit}`;
+      if (p.build_state === 'FAILED') sigs.set(`fail:${run}`, `#${p.id}`);
+      if (p.build_state === 'SUCCESSFUL') sigs.set(`done:${run}`, `#${p.id}`);
+      // a running build or Sonar analysis still shows the previous run's gate
+      const gateSettled = p.build_state !== 'INPROGRESS' && !p.sonar_building;
+      if (p.qg_label === 'FAIL' && gateSettled) sigs.set(`qg:${run}`, `#${p.id}`);
+      if (p.qg_label === 'PASS' && gateSettled) sigs.set(`qgpass:${run}`, `#${p.id}`);
+      // one signature per approval level: a new approval adds one; a push that
+      // resets approvals drops them, so approving again sounds again
+      for (let n = 1; n <= (p.approvals || 0); n++) sigs.set(`approved:${p.slug}#${p.id}#${n}`, `#${p.id}`);
+      if (p.approvals > 0 && !p.needs_work && p.build_state === 'SUCCESSFUL'
+          && p.qg_label !== 'FAIL' && p.qg_label !== 'WARN' && p.merge_outcome === 'CLEAN')
+        sigs.set(`happy:${p.slug}#${p.id}@${p.commit}`, `#${p.id}`);
+    }
+    for (const j of jk?.pipelines || [])                   // master builds (Jenkins page)
+      if (j.state === 'FAILURE' || j.state === 'UNSTABLE') sigs.set(`fail:${j.label}@${j.timestamp}`, `${j.label} master`);
+    return sigs;
+  }
+
+  const SOUND_NAMES = {fail: 'BUILD RED', qg: 'QG FAIL', happy: 'ALL GREEN', approved: 'APPROVED', qgpass: 'QG PASS', done: 'BUILD GREEN'};
+
+  function checkSounds(bb, jk) {
+    const now = soundSignatures(bb, jk);
+    if (soundSeen) {
+      const fresh = [...now].filter(([sig]) => !soundSeen.has(sig));
+      // one sound per reload, worst news first
+      const kind = ['fail', 'qg', 'happy', 'approved', 'qgpass', 'done'].find(k => fresh.some(([sig]) => sig.startsWith(k + ':')));
+      if (kind) playBuildSound(kind, fresh.filter(([sig]) => sig.startsWith(kind + ':')).map(([, label]) => label).join(' '));
+    }
+    soundSeen = new Set(now.keys());
+  }
+
+  // The page renders the sound (no click needed for that) and server.py plays
+  // it on the Mac with afplay — browsers refuse to play audio on a page nobody
+  // has clicked. The server plays one sound per kind every few seconds, so two
+  // open dashboards don't double it, and logs every request ("[sound …]" in
+  // /tmp/dashboard-server.log).
+  async function playBuildSound(kind, what) {
+    const time = new Date().toLocaleTimeString('da-DK', {hour: '2-digit', minute: '2-digit'});
+    document.getElementById('sb-lastsound').textContent = `🔊 ${SOUND_NAMES[kind]} ${what} ${time}`;
+    try {
+      const wav = await renderWav(kind);
+      const r = await fetch(`/api/play-sound?kind=${kind}&what=${encodeURIComponent(what)}`, {method: 'POST', body: wav});
+      if (!r.ok) throw new Error(await r.text());
+    } catch (e) {
+      document.getElementById('sb-lastsound').textContent = `🔇 ${SOUND_NAMES[kind]} ${what} ${time} (failed: ${e.message})`;
     }
   }
 
@@ -1802,6 +1870,7 @@
   // the server says when poll.sh (or the timesheet) rewrote a data file
   const events = new EventSource('/api/data-events');
   events.onmessage = loadData;
+  events.addEventListener('soundtest', e => playBuildSound(e.data, 'TEST'));   // from sounds.html
   events.addEventListener('schedule', e => { pollState = JSON.parse(e.data); renderPoll(); });
   </script>
   <script>

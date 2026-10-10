@@ -45,6 +45,7 @@ WORKLOG_LEDGER = DATA_DIR / "jira-worklog.json"
 WORKHOURS = DATA_DIR / "work-hours.json"
 IDLE_KEY  = "__IDLE__"
 LEAVE_TYPES = ("vacation", "sick", "child_sick", "other")
+SOUND_KINDS = ("fail", "qg", "happy", "approved", "qgpass", "done")   # sfx in sounds.js
 
 JIRA_KEY_RE = re.compile(r"^[A-Z][A-Z0-9]*-\d+$")
 _DATE_RE = re.compile(r"^\d{4}-\d{2}-\d{2}$")
@@ -1314,6 +1315,35 @@ class Handler(http.server.SimpleHTTPRequestHandler):
         except Exception as e:
             self._respond(502, f"Versions error: {e}")
 
+    _last_sound = {}   # kind -> time.monotonic() it last played, shared by all requests
+
+    def _handle_play_sound(self):
+        """Play a build sound the dashboard rendered (a WAV in the body) on this
+        Mac with afplay. Browsers won't play audio on a page nobody has clicked,
+        so the page decides and renders, and the server plays. One play per kind
+        per 3 s, so two open dashboards don't double it. Every request is logged."""
+        import time
+        qs = urllib.parse.parse_qs(urllib.parse.urlparse(self.path).query)
+        kind = (qs.get("kind") or [""])[0]
+        what = (qs.get("what") or [""])[0][:80]
+        length = int(self.headers.get("Content-Length") or 0)
+        if kind not in SOUND_KINDS or not 44 < length <= 1_000_000:
+            self._respond(400, "need a known kind and a WAV body")
+            return
+        body = self.rfile.read(length)
+        if body[:4] != b"RIFF":
+            self._respond(400, "not a WAV")
+            return
+        now = time.monotonic()
+        dup = now - Handler._last_sound.get(kind, -99) < 3
+        print(f"[sound {datetime.datetime.now():%H:%M:%S}] {kind} {what}{' — duplicate, skipped' if dup else ''}", flush=True)
+        if not dup:
+            Handler._last_sound[kind] = now
+            wav = DATA_DIR / f".sound-{kind}.wav"
+            wav.write_bytes(body)
+            subprocess.Popen(["afplay", str(wav)], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        self._respond_json(200, {"ok": True, "played": not dup})
+
     def _handle_data_events(self):
         """Server-sent events: one "changed" message whenever a data file the
         dashboard shows is rewritten (by poll.sh, or a timesheet change), so the
@@ -1324,13 +1354,14 @@ class Handler(http.server.SimpleHTTPRequestHandler):
         import time
         files = [DATA_DIR / n for n in ("bitbucket.json", "jira.json", "jenkins.json", "timetrack.json")]
         state = DATA_DIR / "poll-state.json"
+        sound_test = DATA_DIR / ".sound-test"
         mtime = lambda f: f.stat().st_mtime if f.exists() else 0
         sig = lambda: tuple(mtime(f) for f in files)
         self.send_response(200)
         self.send_header("Content-Type", "text/event-stream")
         self.send_header("Cache-Control", "no-store")
         self.end_headers()
-        seen, seen_state = sig(), None
+        seen, seen_state, seen_test = sig(), None, mtime(sound_test)
         try:
             while True:
                 if mtime(state) != seen_state:
@@ -1341,6 +1372,10 @@ class Handler(http.server.SimpleHTTPRequestHandler):
                         self.wfile.flush()
                     except OSError:
                         pass
+                if mtime(sound_test) != seen_test:
+                    seen_test = mtime(sound_test)
+                    self.wfile.write(f"event: soundtest\ndata: {sound_test.read_text().strip()}\n\n".encode())
+                    self.wfile.flush()
                 now = sig()
                 if now != seen:
                     seen = now
@@ -1419,6 +1454,20 @@ class Handler(http.server.SimpleHTTPRequestHandler):
         self.wfile.write(body)
 
     def do_POST(self):
+        if self.path == "/api/sound-test":
+            # sounds.html asks every open dashboard to play a build sound through
+            # its real path (see the "soundtest" event in _handle_data_events)
+            length = int(self.headers.get("Content-Length") or 0)
+            kind = self.rfile.read(min(length, 20)).decode("ascii", "replace").strip()
+            if kind not in SOUND_KINDS:
+                self._respond(400, "unknown sound")
+                return
+            (DATA_DIR / ".sound-test").write_text(kind)
+            self._respond_json(200, {"ok": True})
+            return
+        if self.path.startswith("/api/play-sound"):
+            self._handle_play_sound()
+            return
         if self.path == "/api/wake":
             # Dashboard activity: poll.sh sees the mtime change within a second,
             # fetches every source now and resets its back-off.
@@ -1747,6 +1796,15 @@ class Handler(http.server.SimpleHTTPRequestHandler):
 
     def log_message(self, fmt, *args):
         pass
+
+    def end_headers(self):
+        # Pages, scripts and styles change with every edit; without this the
+        # browser may reuse a cached copy for a while (it only had
+        # Last-Modified to go on), e.g. a new index.html with an old sounds.js.
+        # "no-cache" still caches, it just asks first — unchanged files are 304s.
+        if not self.path.startswith("/api/"):
+            self.send_header("Cache-Control", "no-cache")
+        super().end_headers()
 
 
 class _LocalOnlyServer(http.server.ThreadingHTTPServer):

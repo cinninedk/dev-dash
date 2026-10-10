@@ -1,0 +1,86 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Sounds — Jiraffe</title>
+  <link rel="stylesheet" href="theme.css">
+  <script src="theme.js"></script>
+  <script src="sounds.js"></script>
+  <style>
+    /* Temporary test page for the dashboard's build sounds. */
+    body { background:var(--bg); color:var(--text); font-family:var(--font); font-size:18px; padding:20px; margin:0; }
+    a { color:var(--dim); }
+    h1 { color:var(--bright); font-size:28px; letter-spacing:2px; margin:0 0 16px; font-family:var(--font-display); }
+    .row { display:flex; gap:12px; flex-wrap:wrap; margin-bottom:18px; }
+    button {
+      background:none; border:1px solid var(--border); color:var(--text); font:inherit;
+      padding:10px 18px; cursor:pointer; letter-spacing:1px; text-align:left;
+    }
+    button:hover { border-color:var(--bright); color:var(--bright); }
+    button small { display:block; color:var(--dim); font-size:14px; }
+    #state { color:var(--dim); font-size:15px; }
+    #state b { color:var(--bright); }
+  </style>
+</head>
+<body>
+  <h1>🔊 SOUND TEST</h1>
+  <p><a href="index.html">◆ back to the dashboard</a></p>
+  <div class="row">
+    <button onclick="play('fail')">BUILD RED<small>low buzz · build failed</small></button>
+    <button onclick="play('qg')">QG FAIL<small>three low knocks · quality gate failed</small></button>
+    <button onclick="play('happy')">ALL GREEN<small>rising C-E-G-C · approved &amp; green</small></button>
+    <button onclick="play('approved')">APPROVED<small>bell · a reviewer approved</small></button>
+    <button onclick="play('qgpass')">QG PASS<small>high tick-tick · quality gate passed</small></button>
+    <button onclick="play('done')">BUILD GREEN<small>short rising · build finished green</small></button>
+  </div>
+  <div id="state"></div>
+
+  <h1 style="margin-top:28px">🔊 TEST ON THE DASHBOARD</h1>
+  <p style="color:var(--dim);font-size:15px;max-width:640px">Makes the open dashboard play the sound through
+    its real path — rendered by the page, played on the Mac by the dashboard server, no click needed —
+    5 seconds after you click, so you can leave the dashboard in the background first.</p>
+  <div class="row">
+    <button onclick="testOnDashboard('fail', this)">BUILD RED<small>on the dashboard in 5 s</small></button>
+    <button onclick="testOnDashboard('qg', this)">QG FAIL<small>on the dashboard in 5 s</small></button>
+    <button onclick="testOnDashboard('happy', this)">ALL GREEN<small>on the dashboard in 5 s</small></button>
+    <button onclick="testOnDashboard('approved', this)">APPROVED<small>on the dashboard in 5 s</small></button>
+    <button onclick="testOnDashboard('qgpass', this)">QG PASS<small>on the dashboard in 5 s</small></button>
+    <button onclick="testOnDashboard('done', this)">BUILD GREEN<small>on the dashboard in 5 s</small></button>
+  </div>
+
+<script>
+  // These play in this tab: each click is a user gesture, so the browser allows it.
+  let audio = null;
+  async function play(name) {
+    audio ||= new AudioContext();
+    await audio.resume();
+    target = audio;
+    sfx[name]();
+    show();
+  }
+  function show() {
+    document.getElementById('state').innerHTML = audio
+      ? `audio: <b>${audio.state}</b> · ${audio.sampleRate} Hz · output latency ${Math.round((audio.outputLatency || 0) * 1000)} ms`
+      : '';
+  }
+  show();
+
+  function testOnDashboard(kind, btn) {
+    const small = btn.querySelector('small'), was = small.textContent;
+    let n = 5;
+    const tick = () => {
+      if (n === 0) {
+        fetch('/api/sound-test', {method: 'POST', body: kind});
+        small.textContent = 'sent — did the dashboard play it?';
+        setTimeout(() => { small.textContent = was; }, 4000);
+        return;
+      }
+      small.textContent = `sending in ${n--} s…`;
+      setTimeout(tick, 1000);
+    };
+    tick();
+  }
+</script>
+</body>
+</html>
