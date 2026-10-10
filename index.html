@@ -654,8 +654,8 @@
     }
     .sb:last-child { border-right: none; border-left: 1px solid var(--border); }
     .sb span { color: var(--text); }
-    .sb.override-active,
-    .sb.override-active span { color: var(--yellow); }
+    .sb.stale, .sb.stale span { color: var(--red); }
+    #sb-poll .busy { color: var(--yellow); }
     .sb-right { margin-left: auto; }
     #sprint-dates:empty { display: none; }
 
@@ -840,12 +840,12 @@
   </main>
 
   <div id="statusbar">
-    <div class="sb">SESSION <span id="sb-session">–</span></div>
-    <div class="sb">LAST POLL <span id="sb-lastpoll">–</span></div>
-    <div class="sb" id="sb-next-box" onclick="toggleWorkHoursOverride()" style="cursor:pointer" title="Click to force polling outside work hours">NEXT <span id="sb-next">–</span></div>
-    <div class="sb">DATA AGE <span id="sb-age">–</span></div>
-    <div class="sb" id="sprint-dates"></div>
-    <div class="sb sb-right" id="poll-status">–</div>
+    <div class="sb" title="How long this tab has been open">SESSION <span id="sb-session">–</span></div>
+    <div class="sb" title="When the background poller (poll.sh) last wrote fresh Bitbucket data. See POLL for how often it fetches; the page reloads as soon as it writes.">LAST POLL <span id="sb-lastpoll">–</span></div>
+    <div class="sb" id="sb-age-box" title="Time since LAST POLL. Turns red after 2 min: the poller has stopped or can't reach Bitbucket (VPN down?) — the board is showing old data.">DATA AGE <span id="sb-age">–</span></div>
+    <div class="sb" id="sprint-dates" title="Active sprint, from Jira"></div>
+    <div class="sb" id="sb-poll" title="How often poll.sh fetches each source: time to the next fetch / current interval. ⚡ = fast because a build or Sonar analysis is running. Quiet sources back off: Bitbucket 15 s → 2 min, Jira 1 → 10 min, Jenkins 5 min. Any activity on this page resets them.">POLL <span id="sb-poll-v">–</span></div>
+    <div class="sb sb-right" id="poll-status" title="What the page is doing: ↺ time = showing data from that poll · fetching… = re-reading the data files · polling… = a full poll is running (REFRESH, or page load)">–</div>
     <div class="sb"><span id="sb-clock"></span></div>
   </div>
 
@@ -879,14 +879,8 @@
   let jiraData      = null;
   let ttData        = null;  // timetrack.json
   let prevIssueStatuses = {};  // for detecting QA transitions
-  let nextAt        = null;
-  let refreshTimer  = null;
   let ttTimer       = null;  // for elapsed time tick
-  const FETCH_BUFFER_MS = 2_000;  // ms after next_poll before fetching
-  let workHoursEnabled = true;
-  let workStartHour    = 8;
-  let workEndHour      = 18;
-  let workHoursOverride = false; // click NEXT box to force polling outside hours
+  const STALE_MS    = 2 * 60_000;  // DATA AGE turns red: poller stopped or VPN down
 
   // ── Tracking ──────────────────────────────────────────────────────────
 
@@ -1302,23 +1296,6 @@
     return new Date(isoStr).toLocaleTimeString('da-DK', {hour:'2-digit', minute:'2-digit'});
   }
 
-  function isWorkHours() {
-    if (!workHoursEnabled || workHoursOverride) return true;
-    const d = new Date(), day = d.getDay(), h = d.getHours();
-    return day >= 1 && day <= 5 && h >= workStartHour && h < workEndHour;
-  }
-
-  function toggleWorkHoursOverride() {
-    workHoursOverride = !workHoursOverride;
-    const box = document.getElementById('sb-next-box');
-    box.classList.toggle('override-active', workHoursOverride);
-    box.title = workHoursOverride
-      ? 'Polling forced on outside work hours — click to re-enable outside-hours pause'
-      : 'Click to force polling outside work hours';
-    scheduleRefresh();
-    tick();
-  }
-
   // ── Badges ─────────────────────────────────────────────────────────────
 
   function buildBadge(state, name, url) {
@@ -1675,55 +1652,54 @@
       jiraData = jira;
       if (bb.stash_url)   STASH = bb.stash_url;
       if (jira.jira_url)  JIRA  = jira.jira_url;
-      if (bb.work_hours_enabled != null) workHoursEnabled = bb.work_hours_enabled;
-      if (bb.work_start_hour    != null) workStartHour    = bb.work_start_hour;
-      if (bb.work_end_hour      != null) workEndHour      = bb.work_end_hour;
       await loadTimetrack();
       detectAutoIdle();
       renderAll(bb, jira);
       renderTrackingBox();
       startTrackingTick();
+      // REFRESH is done once Bitbucket data newer than the click has landed
+      if (refreshAt && Date.parse(bb.updated) >= refreshAt - 1000) {
+        refreshAt = 0;
+        const btn = document.getElementById('refresh-btn');
+        btn.disabled = false;
+        btn.textContent = '⟳ REFRESH';
+      }
     } catch {
       document.getElementById('poll-status').textContent = '⚠ no data – run ./poll.sh';
       ['my-prs-list','reviewer-prs-list'].forEach(id => {
         document.getElementById(id).innerHTML = '<div class="empty-msg">⚠ run ./poll.sh to populate data/</div>';
       });
     }
-    scheduleRefresh();
   }
 
-  // Manual REFRESH: force a real backend poll (poll.sh one-shot), then reload.
-  async function triggerPoll() {
+  // Manual REFRESH: wake poll.sh to fetch everything now. The button stays in
+  // POLLING… until fresh data lands (loadData, via /api/data-events).
+  let refreshAt = 0;
+  function triggerPoll() {
+    refreshAt = Date.now();
     const btn = document.getElementById('refresh-btn');
-    const prevLabel = btn.textContent;
     btn.disabled = true;
     btn.textContent = '⟳ POLLING…';
-    document.getElementById('poll-status').textContent = '↺ polling…';
-    try {
-      const r = await fetch('/api/poll', {method: 'POST'});
-      if (!r.ok) console.error('poll failed:', await r.text());
-    } catch (e) {
-      console.error('poll request error:', e);
-    } finally {
-      btn.disabled = false;
-      btn.textContent = prevLabel;
-      loadData();   // pull in the freshly written data/*.json
-    }
-  }
-
-  function scheduleRefresh() {
-    if (refreshTimer) clearTimeout(refreshTimer);
-    if (!isWorkHours()) { nextAt = null; return; }
-    const np = bbData && bbData.next_poll ? new Date(bbData.next_poll).getTime() : 0;
-    const pollInterval = (bbData?.next_poll && bbData?.updated)
-      ? Math.max(5_000, new Date(bbData.next_poll) - new Date(bbData.updated))
-      : 15_000;
-    const fireAt = np > Date.now() ? np + FETCH_BUFFER_MS : Date.now() + pollInterval + FETCH_BUFFER_MS;
-    nextAt = fireAt;
-    refreshTimer = setTimeout(loadData, fireAt - Date.now());
+    wake();
   }
 
   // ── Clock / tick ────────────────────────────────────────────────────────
+
+  // poll.sh's schedule (data/poll-state.json, pushed as a "schedule" event)
+  let pollState = null;
+  const mmss = s => s < 60 ? `${s}s` : `${Math.floor(s / 60)}:${String(s % 60).padStart(2, '0')}`;
+  const span = s => s < 60 ? `${s}s` : `${Math.round(s / 60)}m`;
+  function renderPoll() {
+    const el = document.getElementById('sb-poll-v');
+    if (!pollState) return;
+    if (pollState.offline) { el.innerHTML = '<span style="color:var(--red)">OFFLINE (VPN?)</span>'; return; }
+    const nowS = Date.now() / 1000;
+    el.innerHTML = [['bitbucket', 'BB'], ['jira', 'JIRA'], ['jenkins', 'JENKINS']].map(([k, name]) => {
+      const src = pollState[k];
+      const left = pollState.fetching === k ? '⟳' : mmss(Math.max(0, Math.ceil(src.next - nowS)));
+      return `<span class="${src.busy ? 'busy' : ''}">${name} ${left}/${span(src.interval)}${src.busy ? '⚡' : ''}</span>`;
+    }).join(' · ');
+  }
 
   function tick() {
     const now   = new Date();
@@ -1731,24 +1707,33 @@
     const date  = now.toLocaleDateString('da-DK', {weekday:'short', day:'2-digit', month:'2-digit'});
     document.getElementById('sb-clock').textContent = `${date}  ${time}`;
     document.getElementById('sb-session').textContent = dur(Date.now() - SESSION_START);
-
-    if (!isWorkHours()) {
-      document.getElementById('sb-next').textContent = 'outside hours';
-      document.getElementById('sb-next').style.color = 'var(--dim)';
-    } else if (nextAt) {
-      const secs = Math.max(0, Math.ceil((nextAt - Date.now()) / 1000));
-      document.getElementById('sb-next').textContent = secs + 's';
-      document.getElementById('sb-next').style.color = '';
-    }
+    renderPoll();
 
     if (bbData?.updated) {
       document.getElementById('sb-age').textContent = ago(bbData.updated);
+      document.getElementById('sb-age-box').classList.toggle('stale', Date.now() - new Date(bbData.updated) > STALE_MS);
     }
   }
 
   setInterval(tick, 1000);
   tick();
+  // Activity here wakes poll.sh: it fetches every source at once and drops its
+  // back-off to the fast intervals. Clicks and keys count at most once a minute.
+  let lastWake = 0;
+  function wake() {
+    lastWake = Date.now();
+    fetch('/api/wake', {method: 'POST'}).catch(() => {});
+  }
+  ['pointerdown', 'keydown'].forEach(ev => addEventListener(ev, () => { if (Date.now() - lastWake > 60_000) wake(); }));
+  document.addEventListener('visibilitychange', () => { if (!document.hidden) wake(); });
+
+  // Show the last data at once; the wake gets fresh data within seconds.
   loadData();
+  wake();
+  // the server says when poll.sh (or the timesheet) rewrote a data file
+  const events = new EventSource('/api/data-events');
+  events.onmessage = loadData;
+  events.addEventListener('schedule', e => { pollState = JSON.parse(e.data); renderPoll(); });
   </script>
   <script>
     (function () {

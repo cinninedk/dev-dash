@@ -388,268 +388,228 @@ process_prs_to_json() {
     done
 }
 
-# ── Main loop ──
+# ── Fetchers ── one per source, each writing its own data/*.json
 
-while true; do
+poll_bitbucket() {
+    # Load build/sonar cache (read once; available to process_prs_to_json subshells)
+    # An empty or broken file must read as {} — jq prints nothing for empty
+    # input, and an empty $CACHE used to break every later merge, for good.
+    CACHE=$(jq -c 'objects' "$CACHE_FILE" 2>/dev/null); [ -n "$CACHE" ] || CACHE='{}'
+    CACHE_UPDATES=$(mktemp)
 
-# Read config (re-read each iteration so edits take effect without restart)
-SLEEP=$(cfg poll_active_seconds);                 SLEEP=${SLEEP:-15}
-POLL_BUILD_STALE=$(cfg poll_build_stale_seconds); POLL_BUILD_STALE=${POLL_BUILD_STALE:-600}
-WORK_HOURS_ENABLED=$(cfg work_hours_enabled);     WORK_HOURS_ENABLED=${WORK_HOURS_ENABLED:-true}
-WORK_START_HOUR=$(cfg work_start_hour);           WORK_START_HOUR=${WORK_START_HOUR:-8}
-WORK_END_HOUR=$(cfg work_end_hour);               WORK_END_HOUR=${WORK_END_HOUR:-18}
+    log "Fetching Bitbucket PRs..."
+    MY_PRS_RAW=$(curl -s "${CURL_OPTS[@]}" -H "Authorization: Bearer $PASSWORD" \
+        "$STASH_URL/rest/api/1.0/dashboard/pull-requests?state=OPEN&role=AUTHOR")
 
-NEXT_POLL=$(date -u -v+${SLEEP}S +%Y-%m-%dT%H:%M:%SZ)
+    REVIEWER_PRS_RAW=$(curl -s "${CURL_OPTS[@]}" -H "Authorization: Bearer $PASSWORD" \
+        "$STASH_URL/rest/api/1.0/dashboard/pull-requests?state=OPEN&role=REVIEWER" \
+        | jq -c --arg user "$BB_USERNAME" '
+            .values |= (. // [] | map(select(
+                (.author.user.name != $user) and
+                (.author.user.name | ascii_downcase | test("renovate") | not) and
+                ((.fromRef.id // "") | ascii_downcase | test("renovate") | not) and
+                (.draft != true) and
+                ((.title // "") | ascii_downcase | test("wip|draft") | not) and
+                ([.reviewers[]? | select(.status == "APPROVED")] | length) == 0
+            ))) | .size = ((.values // []) | length)
+        ')
 
-# Fail this whole cycle fast if the VPN/network is down, instead of working
-# through ~20 endpoints one at a time until each one's own CURL_OPTS timeout
-# gives up. Existing data/*.json files are left untouched (last-known-good),
-# so the dashboard keeps showing stale-but-correct data rather than an error.
-if ! vpn_ok; then
-    log "⚠ $STASH_URL unreachable (VPN down?) — skipping this cycle, keeping last data"
-    if [ -n "$POLL_ONCE" ]; then
-        log "One-shot poll aborted: VPN unreachable."
-        exit 1
-    fi
-    sleep "$SLEEP"
-    continue
-fi
+    MY_PRS_JSON=$(process_prs_to_json "$MY_PRS_RAW"       "$CACHE_UPDATES" | jq -s '.')
+    REV_PRS_JSON=$(process_prs_to_json "$REVIEWER_PRS_RAW" "$CACHE_UPDATES" | jq -s '.')
 
-# Load build/sonar cache (read once; available to process_prs_to_json subshells)
-CACHE=$(cat "$CACHE_FILE" 2>/dev/null | jq -c '.' 2>/dev/null || echo '{}')
-CACHE_UPDATES=$(mktemp)
+    fetched_count=$(wc -l < "$CACHE_UPDATES" | tr -d ' ')
+    log "Bitbucket: $(echo "$MY_PRS_JSON" | jq 'length') my PRs, $(echo "$REV_PRS_JSON" | jq 'length') for review (${fetched_count} build/sonar fetched)"
 
-log "Fetching Bitbucket PRs..."
-MY_PRS_RAW=$(curl -s "${CURL_OPTS[@]}" -H "Authorization: Bearer $PASSWORD" \
-    "$STASH_URL/rest/api/1.0/dashboard/pull-requests?state=OPEN&role=AUTHOR")
+    # Merge this cycle's fetches (one JSON object per line, keyed by PR id) and
+    # evict PRs that are no longer open, in one write.
+    ALL_IDS=$(echo "$MY_PRS_JSON" "$REV_PRS_JSON" | jq -s '[.[].[] | .id | tostring] | unique')
+    jq -n --argjson base "$CACHE" --argjson ids "${ALL_IDS:-[]}" --slurpfile up "$CACHE_UPDATES" \
+        'reduce $up[] as $x ($base; . * $x) | with_entries(select(.key as $k | ($ids | index($k)) != null))' \
+        > "${CACHE_FILE}.tmp" && mv "${CACHE_FILE}.tmp" "$CACHE_FILE"
+    rm -f "$CACHE_UPDATES"
 
-REVIEWER_PRS_RAW=$(curl -s "${CURL_OPTS[@]}" -H "Authorization: Bearer $PASSWORD" \
-    "$STASH_URL/rest/api/1.0/dashboard/pull-requests?state=OPEN&role=REVIEWER" \
-    | jq -c --arg user "$BB_USERNAME" '
-        .values |= (. // [] | map(select(
-            (.author.user.name != $user) and
-            (.author.user.name | ascii_downcase | test("renovate") | not) and
-            ((.fromRef.id // "") | ascii_downcase | test("renovate") | not) and
-            (.draft != true) and
-            ((.title // "") | ascii_downcase | test("wip|draft") | not) and
-            ([.reviewers[]? | select(.status == "APPROVED")] | length) == 0
-        ))) | .size = ((.values // []) | length)
+    jq -n \
+        --argjson my_prs "$MY_PRS_JSON" \
+        --argjson reviewer_prs "$REV_PRS_JSON" \
+        --arg stash_url "$STASH_URL" \
+        --arg updated "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
+        '{my_prs:$my_prs, reviewer_prs:$reviewer_prs, stash_url:$stash_url, updated:$updated}' \
+        > "$BB_OUT.tmp" && mv "$BB_OUT.tmp" "$BB_OUT"
+}
+
+poll_jira() {
+    # ── Jira ──
+    log "Fetching Jira issues..."
+
+    # JQL queries are defined in secrets/config as JQL_MINE, JQL_IMPL, JQL_TQA, JQL_NEXT
+
+    JQ_PROJ='[.issues[]? | {
+        key:        .key,
+        summary:    .fields.summary,
+        status:     (.fields.status.name | ascii_upcase),
+        type:       .fields.issuetype.name,
+        priority:   .fields.priority.name,
+        updated:    .fields.updated,
+        parent_key: (.fields.parent.key // null),
+        teknisk_qa: ((.fields.labels // []) | any(. == "teknisk_QA")),
+        unassigned: (.fields.assignee == null),
+        blocked_by: [(.fields.issuelinks // [])[] | select(.type.inward == "is blocked by" and .inwardIssue != null) | {key: .inwardIssue.key, status: (.inwardIssue.fields.status.name | ascii_upcase)}]
+    }]'
+
+    JQ_PROJ_TQA='[.issues[]? | {
+        key:            .key,
+        summary:        .fields.summary,
+        status:         (.fields.status.name | ascii_upcase),
+        type:           .fields.issuetype.name,
+        priority:       .fields.priority.name,
+        updated:        .fields.updated,
+        teknisk_qa:     true,
+        assigned_to_me: ((.fields.assignee.name // "") == $username),
+        unassigned:     (.fields.assignee == null)
+    }]'
+
+    MINE_JSON=$(curl -s "${CURL_OPTS[@]}" \
+        "$JIRA_URL/rest/api/2/search" \
+        -H "Authorization: Bearer $JIRA_PASSWORD" \
+        --get \
+        --data-urlencode "jql=$JQL_MINE" \
+        --data-urlencode "maxResults=50" \
+        --data-urlencode "fields=summary,status,issuetype,priority,updated,labels,assignee,issuelinks,parent" \
+        | jq "$JQ_PROJ" 2>/dev/null || echo "[]")
+
+    IMPL_JSON=$(curl -s "${CURL_OPTS[@]}" \
+        "$JIRA_URL/rest/api/2/search" \
+        -H "Authorization: Bearer $JIRA_PASSWORD" \
+        --get \
+        --data-urlencode "jql=$JQL_IMPL" \
+        --data-urlencode "maxResults=50" \
+        --data-urlencode "fields=summary,status,issuetype,priority,updated,labels,assignee,issuelinks,parent" \
+        | jq "$JQ_PROJ" 2>/dev/null || echo "[]")
+
+    TQA_JSON=$(curl -s "${CURL_OPTS[@]}" \
+        "$JIRA_URL/rest/api/2/search" \
+        -H "Authorization: Bearer $JIRA_PASSWORD" \
+        --get \
+        --data-urlencode "jql=$JQL_TQA" \
+        --data-urlencode "maxResults=50" \
+        --data-urlencode "fields=summary,status,issuetype,priority,updated,labels,assignee" \
+        | jq --arg username "$USERNAME" "$JQ_PROJ_TQA" 2>/dev/null || echo "[]")
+
+    _JQ_NEXT='[.issues[]? | {
+        key:        .key,
+        summary:    .fields.summary,
+        status:     (.fields.status.name | ascii_upcase),
+        type:       .fields.issuetype.name,
+        priority:   .fields.priority.name,
+        updated:    .fields.updated,
+        teknisk_qa: ((.fields.labels // []) | any(. == "teknisk_QA"))
+    }]'
+
+    NEXT_CURRENT=$(curl -s "${CURL_OPTS[@]}" \
+        "$JIRA_URL/rest/api/2/search" \
+        -H "Authorization: Bearer $JIRA_PASSWORD" \
+        --get \
+        --data-urlencode "jql=$JQL_NEXT_CURRENT" \
+        --data-urlencode "maxResults=50" \
+        --data-urlencode "fields=summary,status,issuetype,priority,updated,labels" \
+        | jq "$_JQ_NEXT" 2>/dev/null || echo "[]")
+
+    NEXT_FUTURE=$(curl -s "${CURL_OPTS[@]}" \
+        "$JIRA_URL/rest/api/2/search" \
+        -H "Authorization: Bearer $JIRA_PASSWORD" \
+        --get \
+        --data-urlencode "jql=$JQL_NEXT_FUTURE" \
+        --data-urlencode "maxResults=50" \
+        --data-urlencode "fields=summary,status,issuetype,priority,updated,labels" \
+        | jq "$_JQ_NEXT" 2>/dev/null || echo "[]")
+
+    NEXT_JSON=$(jq -n \
+        --argjson current "$NEXT_CURRENT" \
+        --argjson future  "$NEXT_FUTURE" \
+        '($current | map(. + {sprint_type:"current"})) + ($future | map(. + {sprint_type:"next"}))')
+
+    MINE_JSON=${MINE_JSON:-[]}
+    IMPL_JSON=${IMPL_JSON:-[]}
+    TQA_JSON=${TQA_JSON:-[]}
+    NEXT_JSON=${NEXT_JSON:-[]}
+
+    ISSUES_JSON=$(jq -n --argjson a "$MINE_JSON" --argjson b "$IMPL_JSON" '
+      ($a | map(select(.teknisk_qa != true))) as $mine |
+      ($mine | map(.key)) as $mine_keys |
+      $mine + ($b | map(select(.key as $k | ($mine_keys | index($k)) == null)))
     ')
 
-MY_PRS_JSON=$(process_prs_to_json "$MY_PRS_RAW"       "$CACHE_UPDATES" | jq -s '.')
-REV_PRS_JSON=$(process_prs_to_json "$REVIEWER_PRS_RAW" "$CACHE_UPDATES" | jq -s '.')
+    # Mark each blocker with whether it is assigned to me (i.e. appears in my own issues)
+    MINE_KEYS=$(echo "$MINE_JSON" | jq '[.[].key]')
+    ISSUES_JSON=$(echo "$ISSUES_JSON" | jq --argjson mine_keys "${MINE_KEYS:-[]}" '
+      map(.blocked_by = ((.blocked_by // []) | map(. + {mine: (.key as $k | ($mine_keys | index($k)) != null)})))
+    ')
 
-fetched_count=$(wc -l < "$CACHE_UPDATES" | tr -d ' ')
-log "Bitbucket: $(echo "$MY_PRS_JSON" | jq 'length') my PRs, $(echo "$REV_PRS_JSON" | jq 'length') for review (${fetched_count} build/sonar fetched)"
-
-# Merge cache updates (each line is one JSON object keyed by PR id)
-if [ -s "$CACHE_UPDATES" ]; then
-    jq -s --argjson base "$CACHE" \
-        'reduce .[] as $x ($base; . * $x)' \
-        "$CACHE_UPDATES" > "${CACHE_FILE}.tmp" && \
-    mv "${CACHE_FILE}.tmp" "$CACHE_FILE"
-fi
-rm -f "$CACHE_UPDATES"
-
-# Evict cache entries for PRs that are no longer open
-ALL_IDS=$(echo "$MY_PRS_JSON" "$REV_PRS_JSON" | \
-    jq -s '[.[].[] | .id | tostring] | unique')
-jq --argjson ids "$ALL_IDS" \
-    'with_entries(select(.key as $k | ($ids | index($k)) != null))' \
-    "${CACHE_FILE}" 2>/dev/null > "${CACHE_FILE}.tmp" && \
-mv "${CACHE_FILE}.tmp" "$CACHE_FILE"
-
-jq -n \
-    --argjson my_prs "$MY_PRS_JSON" \
-    --argjson reviewer_prs "$REV_PRS_JSON" \
-    --arg stash_url "$STASH_URL" \
-    --arg updated "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
-    --arg next_poll "$NEXT_POLL" \
-    --argjson work_hours_enabled "$([ "$WORK_HOURS_ENABLED" = "true" ] && echo true || echo false)" \
-    --argjson work_start_hour "$WORK_START_HOUR" \
-    --argjson work_end_hour "$WORK_END_HOUR" \
-    '{my_prs:$my_prs, reviewer_prs:$reviewer_prs, stash_url:$stash_url, updated:$updated, next_poll:$next_poll, work_hours_enabled:$work_hours_enabled, work_start_hour:$work_start_hour, work_end_hour:$work_end_hour}' \
-    > "$BB_OUT.tmp" && mv "$BB_OUT.tmp" "$BB_OUT"
-
-# ── Jira ──
-log "Fetching Jira issues..."
-
-# JQL queries are defined in secrets/config as JQL_MINE, JQL_IMPL, JQL_TQA, JQL_NEXT
-
-JQ_PROJ='[.issues[]? | {
-    key:        .key,
-    summary:    .fields.summary,
-    status:     (.fields.status.name | ascii_upcase),
-    type:       .fields.issuetype.name,
-    priority:   .fields.priority.name,
-    updated:    .fields.updated,
-    parent_key: (.fields.parent.key // null),
-    teknisk_qa: ((.fields.labels // []) | any(. == "teknisk_QA")),
-    unassigned: (.fields.assignee == null),
-    blocked_by: [(.fields.issuelinks // [])[] | select(.type.inward == "is blocked by" and .inwardIssue != null) | {key: .inwardIssue.key, status: (.inwardIssue.fields.status.name | ascii_upcase)}]
-}]'
-
-JQ_PROJ_TQA='[.issues[]? | {
-    key:            .key,
-    summary:        .fields.summary,
-    status:         (.fields.status.name | ascii_upcase),
-    type:           .fields.issuetype.name,
-    priority:       .fields.priority.name,
-    updated:        .fields.updated,
-    teknisk_qa:     true,
-    assigned_to_me: ((.fields.assignee.name // "") == $username),
-    unassigned:     (.fields.assignee == null)
-}]'
-
-MINE_JSON=$(curl -s "${CURL_OPTS[@]}" \
-    "$JIRA_URL/rest/api/2/search" \
-    -H "Authorization: Bearer $JIRA_PASSWORD" \
-    --get \
-    --data-urlencode "jql=$JQL_MINE" \
-    --data-urlencode "maxResults=50" \
-    --data-urlencode "fields=summary,status,issuetype,priority,updated,labels,assignee,issuelinks,parent" \
-    | jq "$JQ_PROJ" 2>/dev/null || echo "[]")
-
-IMPL_JSON=$(curl -s "${CURL_OPTS[@]}" \
-    "$JIRA_URL/rest/api/2/search" \
-    -H "Authorization: Bearer $JIRA_PASSWORD" \
-    --get \
-    --data-urlencode "jql=$JQL_IMPL" \
-    --data-urlencode "maxResults=50" \
-    --data-urlencode "fields=summary,status,issuetype,priority,updated,labels,assignee,issuelinks,parent" \
-    | jq "$JQ_PROJ" 2>/dev/null || echo "[]")
-
-TQA_JSON=$(curl -s "${CURL_OPTS[@]}" \
-    "$JIRA_URL/rest/api/2/search" \
-    -H "Authorization: Bearer $JIRA_PASSWORD" \
-    --get \
-    --data-urlencode "jql=$JQL_TQA" \
-    --data-urlencode "maxResults=50" \
-    --data-urlencode "fields=summary,status,issuetype,priority,updated,labels,assignee" \
-    | jq --arg username "$USERNAME" "$JQ_PROJ_TQA" 2>/dev/null || echo "[]")
-
-_JQ_NEXT='[.issues[]? | {
-    key:        .key,
-    summary:    .fields.summary,
-    status:     (.fields.status.name | ascii_upcase),
-    type:       .fields.issuetype.name,
-    priority:   .fields.priority.name,
-    updated:    .fields.updated,
-    teknisk_qa: ((.fields.labels // []) | any(. == "teknisk_QA"))
-}]'
-
-NEXT_CURRENT=$(curl -s "${CURL_OPTS[@]}" \
-    "$JIRA_URL/rest/api/2/search" \
-    -H "Authorization: Bearer $JIRA_PASSWORD" \
-    --get \
-    --data-urlencode "jql=$JQL_NEXT_CURRENT" \
-    --data-urlencode "maxResults=50" \
-    --data-urlencode "fields=summary,status,issuetype,priority,updated,labels" \
-    | jq "$_JQ_NEXT" 2>/dev/null || echo "[]")
-
-NEXT_FUTURE=$(curl -s "${CURL_OPTS[@]}" \
-    "$JIRA_URL/rest/api/2/search" \
-    -H "Authorization: Bearer $JIRA_PASSWORD" \
-    --get \
-    --data-urlencode "jql=$JQL_NEXT_FUTURE" \
-    --data-urlencode "maxResults=50" \
-    --data-urlencode "fields=summary,status,issuetype,priority,updated,labels" \
-    | jq "$_JQ_NEXT" 2>/dev/null || echo "[]")
-
-NEXT_JSON=$(jq -n \
-    --argjson current "$NEXT_CURRENT" \
-    --argjson future  "$NEXT_FUTURE" \
-    '($current | map(. + {sprint_type:"current"})) + ($future | map(. + {sprint_type:"next"}))')
-
-MINE_JSON=${MINE_JSON:-[]}
-IMPL_JSON=${IMPL_JSON:-[]}
-TQA_JSON=${TQA_JSON:-[]}
-NEXT_JSON=${NEXT_JSON:-[]}
-
-ISSUES_JSON=$(jq -n --argjson a "$MINE_JSON" --argjson b "$IMPL_JSON" '
-  ($a | map(select(.teknisk_qa != true))) as $mine |
-  ($mine | map(.key)) as $mine_keys |
-  $mine + ($b | map(select(.key as $k | ($mine_keys | index($k)) == null)))
-')
-
-# Mark each blocker with whether it is assigned to me (i.e. appears in my own issues)
-MINE_KEYS=$(echo "$MINE_JSON" | jq '[.[].key]')
-ISSUES_JSON=$(echo "$ISSUES_JSON" | jq --argjson mine_keys "${MINE_KEYS:-[]}" '
-  map(.blocked_by = ((.blocked_by // []) | map(. + {mine: (.key as $k | ($mine_keys | index($k)) != null)})))
-')
-
-# Flag which of my issues actually sit in the current open sprint. Anything
-# assigned to me but outside the active sprint gets a NOT IN SPRINT warning.
-MINE_SPRINT_KEYS=$(curl -s "${CURL_OPTS[@]}" \
-    "$JIRA_URL/rest/api/2/search" \
-    -H "Authorization: Bearer $JIRA_PASSWORD" \
-    --get \
-    --data-urlencode "jql=project in ($JIRA_PROJECTS) AND assignee = currentUser() AND sprint in openSprints()" \
-    --data-urlencode "maxResults=200" \
-    --data-urlencode "fields=key" \
-    | jq '[.issues[]?.key]' 2>/dev/null || echo "[]")
-ISSUES_JSON=$(echo "$ISSUES_JSON" | jq --argjson sprint_keys "${MINE_SPRINT_KEYS:-[]}" '
-  map(.in_current_sprint = ((.key as $k | ($sprint_keys | index($k)) != null)))
-')
-
-IMPL_KEYS=$(echo "$IMPL_JSON" | jq '[.[].key]')
-
-TQA_JSON=$(echo "$TQA_JSON" | jq --argjson impl_keys "${IMPL_KEYS:-[]}" '
-  map(. + {implemented_by_me: (.key as $k | ($impl_keys | index($k)) != null)})
-')
-
-FIRST_PROJECT=$(echo "$JIRA_PROJECTS" | cut -d, -f1 | tr -d '"' | tr -d ' ')
-BOARD_IDS=$(curl -s "${CURL_OPTS[@]}" \
-    "$JIRA_URL/rest/agile/1.0/board?projectKeyOrId=$FIRST_PROJECT&type=scrum&maxResults=50" \
-    -H "Authorization: Bearer $JIRA_PASSWORD" \
-    | jq -r '[.values[]?.id] | .[]')
-
-SPRINT_JSON='null'
-ACTIVE_BOARD_ID=""
-for BOARD_ID in $BOARD_IDS; do
-    CANDIDATE=$(curl -s "${CURL_OPTS[@]}" \
-        "$JIRA_URL/rest/agile/1.0/board/$BOARD_ID/sprint?state=active" \
+    # Flag which of my issues actually sit in the current open sprint. Anything
+    # assigned to me but outside the active sprint gets a NOT IN SPRINT warning.
+    MINE_SPRINT_KEYS=$(curl -s "${CURL_OPTS[@]}" \
+        "$JIRA_URL/rest/api/2/search" \
         -H "Authorization: Bearer $JIRA_PASSWORD" \
-        | jq '{name: (.values[0].name // ""), start_date: (.values[0].startDate // ""), end_date: (.values[0].endDate // "")}' \
-        2>/dev/null || echo 'null')
-    if [ "$(echo "$CANDIDATE" | jq -r '.start_date')" != "" ] && \
-       [ "$(echo "$CANDIDATE" | jq -r '.start_date')" != "null" ]; then
-        SPRINT_JSON="$CANDIDATE"
-        ACTIVE_BOARD_ID="$BOARD_ID"
-        break
-    fi
-done
+        --get \
+        --data-urlencode "jql=project in ($JIRA_PROJECTS) AND assignee = currentUser() AND sprint in openSprints()" \
+        --data-urlencode "maxResults=200" \
+        --data-urlencode "fields=key" \
+        | jq '[.issues[]?.key]' 2>/dev/null || echo "[]")
+    ISSUES_JSON=$(echo "$ISSUES_JSON" | jq --argjson sprint_keys "${MINE_SPRINT_KEYS:-[]}" '
+      map(.in_current_sprint = ((.key as $k | ($sprint_keys | index($k)) != null)))
+    ')
 
-BACKLOG_URL=""
-[ -n "$ACTIVE_BOARD_ID" ] && BACKLOG_URL="${JIRA_URL}/secure/RapidBoard.jspa?rapidView=${ACTIVE_BOARD_ID}&view=planning"
+    IMPL_KEYS=$(echo "$IMPL_JSON" | jq '[.[].key]')
 
-jq -n \
-    --argjson issues "$ISSUES_JSON" \
-    --argjson tqa_issues "$TQA_JSON" \
-    --argjson next_tasks "$NEXT_JSON" \
-    --argjson sprint "$SPRINT_JSON" \
-    --arg jira_url "$JIRA_URL" \
-    --arg backlog_url "$BACKLOG_URL" \
-    --arg updated "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
-    '{issues:$issues, tqa_issues:$tqa_issues, next_tasks:$next_tasks, sprint:$sprint, jira_url:$jira_url, backlog_url:$backlog_url, updated:$updated}' \
-    > "$JR_OUT.tmp" && mv "$JR_OUT.tmp" "$JR_OUT"
+    TQA_JSON=$(echo "$TQA_JSON" | jq --argjson impl_keys "${IMPL_KEYS:-[]}" '
+      map(. + {implemented_by_me: (.key as $k | ($impl_keys | index($k)) != null)})
+    ')
 
-log "Jira: $(echo "$MINE_JSON" | jq 'length') mine + $(echo "$IMPL_JSON" | jq 'length') implemented = $(echo "$ISSUES_JSON" | jq 'length') issues, $(echo "$TQA_JSON" | jq 'length') tekn_qa"
+    FIRST_PROJECT=$(echo "$JIRA_PROJECTS" | cut -d, -f1 | tr -d '"' | tr -d ' ')
+    BOARD_IDS=$(curl -s "${CURL_OPTS[@]}" \
+        "$JIRA_URL/rest/agile/1.0/board?projectKeyOrId=$FIRST_PROJECT&type=scrum&maxResults=50" \
+        -H "Authorization: Bearer $JIRA_PASSWORD" \
+        | jq -r '[.values[]?.id] | .[]')
+
+    SPRINT_JSON='null'
+    ACTIVE_BOARD_ID=""
+    for BOARD_ID in $BOARD_IDS; do
+        CANDIDATE=$(curl -s "${CURL_OPTS[@]}" \
+            "$JIRA_URL/rest/agile/1.0/board/$BOARD_ID/sprint?state=active" \
+            -H "Authorization: Bearer $JIRA_PASSWORD" \
+            | jq '{name: (.values[0].name // ""), start_date: (.values[0].startDate // ""), end_date: (.values[0].endDate // "")}' \
+            2>/dev/null || echo 'null')
+        if [ "$(echo "$CANDIDATE" | jq -r '.start_date')" != "" ] && \
+           [ "$(echo "$CANDIDATE" | jq -r '.start_date')" != "null" ]; then
+            SPRINT_JSON="$CANDIDATE"
+            ACTIVE_BOARD_ID="$BOARD_ID"
+            break
+        fi
+    done
+
+    BACKLOG_URL=""
+    [ -n "$ACTIVE_BOARD_ID" ] && BACKLOG_URL="${JIRA_URL}/secure/RapidBoard.jspa?rapidView=${ACTIVE_BOARD_ID}&view=planning"
+
+    jq -n \
+        --argjson issues "$ISSUES_JSON" \
+        --argjson tqa_issues "$TQA_JSON" \
+        --argjson next_tasks "$NEXT_JSON" \
+        --argjson sprint "$SPRINT_JSON" \
+        --arg jira_url "$JIRA_URL" \
+        --arg backlog_url "$BACKLOG_URL" \
+        --arg updated "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
+        '{issues:$issues, tqa_issues:$tqa_issues, next_tasks:$next_tasks, sprint:$sprint, jira_url:$jira_url, backlog_url:$backlog_url, updated:$updated}' \
+        > "$JR_OUT.tmp" && mv "$JR_OUT.tmp" "$JR_OUT"
+
+    log "Jira: $(echo "$MINE_JSON" | jq 'length') mine + $(echo "$IMPL_JSON" | jq 'length') implemented = $(echo "$ISSUES_JSON" | jq 'length') issues, $(echo "$TQA_JSON" | jq 'length') tekn_qa"
+}
 
 # ── Master build monitoring (via Jenkins Prometheus metrics) ──────────────────
 # MASTER_BUILDS (secrets/config): one entry per line, "Label|<jenkins job path
 # after ILT/>". A single fetch of $JENKINS_URL/prometheus/ covers every
 # configured repo directly from Jenkins' own last-build state — no Bitbucket
 # build-status webhook dependency, no guessing at Bitbucket PROJECT/repoSlug.
-# Gated on $POLL_BUILD_STALE (config.yaml poll_build_stale_seconds): the scrape
-# is a few MB, so it isn't worth refetching every $SLEEP-second cycle.
-JK_STALE=true
-if [ -f "$JK_OUT" ]; then
-    jk_mtime=$(stat -f %m "$JK_OUT" 2>/dev/null || echo 0)
-    [ $(( $(date +%s) - jk_mtime )) -lt "$POLL_BUILD_STALE" ] && JK_STALE=false
-fi
-
-if [ -n "${MASTER_BUILDS//[[:space:]]/}" ] && $JK_STALE; then
+poll_jenkins() {
     JK_PREV=$(cat "$JK_OUT" 2>/dev/null || echo '{"pipelines":[]}')
     PROM_RAW=$(curl -s --connect-timeout 5 --max-time 20 --compressed "$JENKINS_URL/prometheus/")
 
@@ -714,15 +674,120 @@ if [ -n "${MASTER_BUILDS//[[:space:]]/}" ] && $JK_STALE; then
         done
         log "Master builds: $(echo "$PIPES" | jq 'length') repos, $(echo "$PIPES" | jq '[.[]|select(.state=="FAILURE")]|length') red"
     fi
-fi
+}
 
-# POLL_ONCE=1 runs a single cycle and exits — used by the dashboard's manual
-# REFRESH button (via /api/poll) to force a fresh fetch on demand.
+# ── Scheduling ──
+# Each source has its own timer that adapts to what is going on:
+#   Bitbucket  10 s while any PR build or Sonar analysis runs; otherwise 15 s
+#              after a change, doubling each unchanged fetch up to 2 min.
+#   Jira       1 min after a change, doubling up to 10 min.
+#   Jenkins    20 s while a master build runs, otherwise 5 min.
+# "Changed" = the file differs apart from its updated stamp. Dashboard activity
+# (page load, tab focus, clicks — server.py touches data/.poll-wake) makes
+# everything due now and resets the back-off, so the loop checks every second.
+BB_FAST=15;  BB_BUSY=10; BB_MAX=120
+JR_FAST=60;              JR_MAX=600
+JK_IDLE=300; JK_BUSY=20
+WAKE_FILE="$OUT_DIR/.poll-wake"
+STATE_FILE="$OUT_DIR/poll-state.json"
+
+# The schedule, for the dashboard's status bar (server.py pushes it to the page
+# as a "schedule" event). Times are epoch seconds; $1 = source being fetched now.
+OFFLINE=false
+write_state() {
+    printf '{"fetching":"%s","offline":%s,"bitbucket":{"interval":%d,"next":%d,"busy":%s},"jira":{"interval":%d,"next":%d},"jenkins":{"interval":%d,"next":%d,"busy":%s}}\n' \
+        "${1:-}" "$OFFLINE" \
+        "$BB_INT" "$BB_DUE" "$([ "$BB_INT" = "$BB_BUSY" ] && echo true || echo false)" \
+        "$JR_INT" "$JR_DUE" \
+        "$JK_INT" "$JK_DUE" "$([ "$JK_INT" = "$JK_BUSY" ] && echo true || echo false)" \
+        > "$STATE_FILE.tmp" && mv "$STATE_FILE.tmp" "$STATE_FILE"
+}
+
+content_sig() { jq -S 'del(.updated)' "$1" 2>/dev/null | md5; }
+mtime()       { stat -f %m "$1" 2>/dev/null || echo 0; }
+capped()      { [ "$1" -lt "$2" ] && echo "$1" || echo "$2"; }
+
+POLL_BUILD_STALE=$(cfg poll_build_stale_seconds); POLL_BUILD_STALE=${POLL_BUILD_STALE:-600}
+
+# POLL_ONCE=1 runs every source once and exits —
+# for a manual fetch from the terminal; the dashboard wakes the loop instead.
 if [ -n "$POLL_ONCE" ]; then
-    log "Done (one-shot). BB → $BB_OUT  |  Jira → $JR_OUT."
-    break
+    vpn_ok || { log "One-shot poll aborted: $STASH_URL unreachable (VPN down?)."; exit 1; }
+    poll_bitbucket
+    poll_jira
+    [ -n "${MASTER_BUILDS//[[:space:]]/}" ] && poll_jenkins
+    log "Done (one-shot)."
+    exit 0
 fi
 
-log "Done. BB → $BB_OUT  |  Jira → $JR_OUT. Sleeping ${SLEEP}s (next_poll: $NEXT_POLL)."
-sleep "$SLEEP"
+BB_INT=$BB_FAST; JR_INT=$JR_FAST; JK_INT=$JK_IDLE
+BB_DUE=0; JR_DUE=0; JK_DUE=0
+WAKE_SEEN=$(mtime "$WAKE_FILE")
+
+while true; do
+    NOW=$(date +%s)
+    W=$(mtime "$WAKE_FILE")
+    if [ "$W" != "$WAKE_SEEN" ]; then
+        WAKE_SEEN=$W
+        BB_INT=$BB_FAST; JR_INT=$JR_FAST; BB_DUE=0; JR_DUE=0; JK_DUE=0
+        log "Dashboard activity — fetching everything now"
+    fi
+
+    if [ "$NOW" -ge "$BB_DUE" ] || [ "$NOW" -ge "$JR_DUE" ] || [ "$NOW" -ge "$JK_DUE" ]; then
+        POLL_BUILD_STALE=$(cfg poll_build_stale_seconds); POLL_BUILD_STALE=${POLL_BUILD_STALE:-600}
+
+        # Fail fast if the VPN/network is down instead of working through every
+        # endpoint until each curl times out. Existing data/*.json files stay
+        # (last-known-good), so DATA AGE turns red rather than the board erroring.
+        if ! vpn_ok; then
+            log "⚠ $STASH_URL unreachable (VPN down?) — retrying in ${BB_FAST}s, keeping last data"
+            BB_DUE=$((NOW + BB_FAST)); [ "$JR_DUE" -lt "$BB_DUE" ] && JR_DUE=$BB_DUE; [ "$JK_DUE" -lt "$BB_DUE" ] && JK_DUE=$BB_DUE
+            OFFLINE=true; write_state
+            sleep 1
+            continue
+        fi
+        OFFLINE=false
+
+        if [ "$NOW" -ge "$BB_DUE" ]; then
+            write_state bitbucket
+            BEFORE=$(content_sig "$BB_OUT")
+            poll_bitbucket
+            if jq -e '[.my_prs[]?, .reviewer_prs[]?] | any(.build_state == "INPROGRESS" or .sonar_building == true)' "$BB_OUT" >/dev/null 2>&1; then
+                BB_INT=$BB_BUSY
+            elif [ "$(content_sig "$BB_OUT")" != "$BEFORE" ]; then
+                BB_INT=$BB_FAST
+            else
+                BB_INT=$(capped $((BB_INT * 2)) $BB_MAX)
+            fi
+            BB_DUE=$(( $(date +%s) + BB_INT ))
+            log "Bitbucket: next in ${BB_INT}s"
+        fi
+
+        if [ "$NOW" -ge "$JR_DUE" ]; then
+            write_state jira
+            BEFORE=$(content_sig "$JR_OUT")
+            poll_jira
+            if [ "$(content_sig "$JR_OUT")" != "$BEFORE" ]; then
+                JR_INT=$JR_FAST
+            else
+                JR_INT=$(capped $((JR_INT * 2)) $JR_MAX)
+            fi
+            JR_DUE=$(( $(date +%s) + JR_INT ))
+            log "Jira: next in ${JR_INT}s"
+        fi
+
+        if [ "$NOW" -ge "$JK_DUE" ] && [ -n "${MASTER_BUILDS//[[:space:]]/}" ]; then
+            write_state jenkins
+            poll_jenkins
+            if jq -e 'any(.pipelines[]?; .state == "BUILDING")' "$JK_OUT" >/dev/null 2>&1; then
+                JK_INT=$JK_BUSY
+            else
+                JK_INT=$JK_IDLE
+            fi
+            JK_DUE=$(( $(date +%s) + JK_INT ))
+            log "Jenkins: next in ${JK_INT}s"
+        fi
+        write_state
+    fi
+    sleep 1
 done

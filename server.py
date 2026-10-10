@@ -1227,6 +1227,9 @@ class Handler(http.server.SimpleHTTPRequestHandler):
         if self.path.startswith("/api/links"):
             self._handle_links()
             return
+        if self.path.startswith("/api/data-events"):
+            self._handle_data_events()
+            return
         if self.path.startswith("/api/worklog-status"):
             self._handle_worklog_status()
             return
@@ -1311,6 +1314,42 @@ class Handler(http.server.SimpleHTTPRequestHandler):
         except Exception as e:
             self._respond(502, f"Versions error: {e}")
 
+    def _handle_data_events(self):
+        """Server-sent events: one "changed" message whenever a data file the
+        dashboard shows is rewritten (by poll.sh, or a timesheet change), so the
+        page reloads only when there is something new; and a "schedule" event
+        carrying poll.sh's poll-state.json (per-source interval and next fetch)
+        whenever that changes, plus once on connect. A dead tab is noticed at
+        the next write; EventSource reconnects by itself after a server restart."""
+        import time
+        files = [DATA_DIR / n for n in ("bitbucket.json", "jira.json", "jenkins.json", "timetrack.json")]
+        state = DATA_DIR / "poll-state.json"
+        mtime = lambda f: f.stat().st_mtime if f.exists() else 0
+        sig = lambda: tuple(mtime(f) for f in files)
+        self.send_response(200)
+        self.send_header("Content-Type", "text/event-stream")
+        self.send_header("Cache-Control", "no-store")
+        self.end_headers()
+        seen, seen_state = sig(), None
+        try:
+            while True:
+                if mtime(state) != seen_state:
+                    seen_state = mtime(state)
+                    try:
+                        body = state.read_text().strip()
+                        self.wfile.write(f"event: schedule\ndata: {body}\n\n".encode())
+                        self.wfile.flush()
+                    except OSError:
+                        pass
+                now = sig()
+                if now != seen:
+                    seen = now
+                    self.wfile.write(b"data: changed\n\n")
+                    self.wfile.flush()
+                time.sleep(1)
+        except (BrokenPipeError, ConnectionResetError):
+            pass
+
     def _handle_links(self):
         # LINKS (secrets/config): one "Label|URL" per line. Kept out of the repo:
         # a Zoom join link carries the meeting password.
@@ -1380,6 +1419,12 @@ class Handler(http.server.SimpleHTTPRequestHandler):
         self.wfile.write(body)
 
     def do_POST(self):
+        if self.path == "/api/wake":
+            # Dashboard activity: poll.sh sees the mtime change within a second,
+            # fetches every source now and resets its back-off.
+            (DATA_DIR / ".poll-wake").touch()
+            self._respond_json(200, {"ok": True})
+            return
         if self.path == "/api/track":
             self._handle_track()
             return
@@ -1389,31 +1434,10 @@ class Handler(http.server.SimpleHTTPRequestHandler):
         if self.path == "/api/leave":
             self._handle_leave()
             return
-        if self.path == "/api/poll":
-            self._handle_poll()
-            return
         if self.path == "/api/poll-copilot":
             self._handle_poll_copilot()
             return
         self._respond(404, "Not found")
-
-    def _handle_poll(self):
-        """Run one poll.sh cycle on demand (manual REFRESH) and report the result."""
-        script = ROOT / "scripts" / "poll.sh"
-        try:
-            proc = subprocess.run(
-                ["bash", str(script)],
-                env={**os.environ, "POLL_ONCE": "1"},
-                capture_output=True, text=True, timeout=120)
-            ok = proc.returncode == 0
-            self._respond_json(200 if ok else 502, {
-                "ok": ok, "code": proc.returncode,
-                "log": (proc.stdout or "")[-2000:],
-                "err": (proc.stderr or "")[-1000:]})
-        except subprocess.TimeoutExpired:
-            self._respond_json(504, {"ok": False, "error": "poll timed out"})
-        except Exception as e:
-            self._respond_json(502, {"ok": False, "error": str(e)})
 
     def _handle_poll_copilot(self):
         """Run one poll-copilot.sh cycle on demand (manual REFRESH) and report the result."""
