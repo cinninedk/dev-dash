@@ -1,0 +1,149 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Links — Jiraffe</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;600&family=Kalam:wght@300;400;700&family=Permanent+Marker&family=Share+Tech+Mono&family=VT323&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="theme.css">
+  <style>
+    /* Theme extras — page-specific variables per theme (core palette lives in
+       theme.css, shared by every page). */
+    :root,
+    [data-theme="amber"] {
+      --sel-bg:rgba(255,212,85,0.07); --hover-bg:rgba(212,135,10,0.04); --row-border-soft:rgba(138,85,0,0.30); --dim-faint:rgba(138,85,0,0.50); --overlay:rgba(0,0,0,0.75); --scanline:rgba(0,0,0,0.07); --scanline-step:4px;
+    }
+    [data-theme="green"] {
+      --sel-bg:rgba(157,255,176,0.08); --hover-bg:rgba(40,200,90,0.05); --row-border-soft:rgba(20,90,40,0.30); --dim-faint:rgba(63,208,106,0.40); --overlay:rgba(0,0,0,0.78); --scanline:rgba(0,0,0,0.14); --scanline-step:3px;
+    }
+    [data-theme="ice"] {
+      --sel-bg:rgba(184,240,255,0.08); --hover-bg:rgba(40,150,200,0.05); --row-border-soft:rgba(20,80,110,0.30); --dim-faint:rgba(82,184,216,0.40); --overlay:rgba(0,8,16,0.78); --scanline:rgba(0,0,0,0.05); --scanline-step:6px;
+    }
+    [data-theme="paper"] {
+      --sel-bg:rgba(120,90,30,0.10); --hover-bg:rgba(120,90,30,0.06); --row-border-soft:rgba(120,100,60,0.25); --dim-faint:rgba(122,106,69,0.50); --overlay:rgba(40,35,25,0.55); --scanline:rgba(0,0,0,0.015); --scanline-step:8px;
+    }
+    [data-theme="c64"] {
+      --sel-bg:rgba(180,170,245,0.12); --hover-bg:rgba(150,135,230,0.14); --row-border-soft:rgba(120,105,196,0.30); --dim-faint:rgba(155,143,224,0.45); --overlay:rgba(18,10,55,0.80); --scanline:rgba(0,0,0,0.10); --scanline-step:3px;
+    }
+    [data-theme="board"] {
+      --sel-bg:rgba(168,120,15,0.16); --hover-bg:rgba(90,65,35,0.10); --row-border-soft:rgba(90,65,35,0.22); --dim-faint:rgba(92,74,48,0.50); --overlay:rgba(40,30,18,0.55); --scanline:rgba(0,0,0,0); --scanline-step:8px;
+    }
+    [data-theme="board"] body {
+      background-color:#c2a173;
+      background-image:
+        radial-gradient(circle at 18% 28%, rgba(108,74,40,0.22) 0 1.5px, transparent 2px),
+        radial-gradient(circle at 63% 54%, rgba(92,60,28,0.18) 0 1.5px, transparent 2px),
+        radial-gradient(circle at 82% 20%, rgba(132,96,56,0.20) 0 1.5px, transparent 2px),
+        radial-gradient(circle at 40% 82%, rgba(88,56,26,0.20) 0 1.5px, transparent 2px),
+        radial-gradient(circle at 90% 75%, rgba(120,86,48,0.16) 0 1.5px, transparent 2px);
+      background-size:23px 23px,17px 17px,29px 29px,19px 19px,13px 13px;
+    }
+
+    * { box-sizing:border-box; margin:0; padding:0; }
+    body {
+      background:var(--bg); color:var(--text); font-family:var(--font); text-shadow:var(--glow,none);
+      font-size:18px; padding:calc(20px + var(--frame-w, 0px)); line-height:1.6;
+    }
+    body::after {
+      content:""; position:fixed; inset:0; pointer-events:none; z-index:9999;
+      background:repeating-linear-gradient(0deg,
+        transparent, transparent calc(var(--scanline-step,4px)/2),
+        var(--scanline) calc(var(--scanline-step,4px)/2), var(--scanline) var(--scanline-step,4px));
+    }
+    body::before {
+      content:""; position:fixed; inset:0; pointer-events:none; z-index:9998;
+      border:var(--frame-w,0px) solid var(--frame-c,transparent);
+    }
+
+    header { margin-bottom:18px; display:flex; align-items:baseline; gap:18px; flex-wrap:wrap; }
+    h1 { color:var(--bright); font-size:28px; letter-spacing:2px; font-family:var(--font-display); text-transform:var(--case,none); min-width:320px; flex-shrink:0; }
+
+    /* shared cross-page navbar */
+    .page-nav { display:flex; gap:4px; flex-wrap:wrap; align-items:center; flex-shrink:0; }
+    .page-nav a { color:var(--dim); text-decoration:none; font-size:15px; letter-spacing:1px; padding:4px 10px; border:1px solid transparent; }
+    .page-nav a:hover { color:var(--bright); border-color:var(--border); }
+    .page-nav a.active { color:var(--bright); border-color:var(--border); background:var(--sel-bg); }
+
+    /* one tile per link */
+    .links { display:grid; grid-template-columns:repeat(auto-fill, minmax(280px, 1fr)); gap:12px; }
+    .link {
+      display:flex; flex-direction:column; gap:2px; padding:14px 18px; text-decoration:none;
+      border:1px solid var(--border); background:var(--panel);
+    }
+    .link:hover, .link:focus-visible { border-color:var(--bright); background:var(--sel-bg); }
+    .link .label { color:var(--bright); font-size:20px; font-family:var(--font-display); text-transform:var(--case,none); letter-spacing:0.5px; }
+    .link .host { color:var(--dim); font-size:14px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+    .empty { color:var(--dim); font-size:15px; max-width:680px; line-height:1.5; }
+    .empty code { color:var(--bright); }
+  </style>
+  <script src="theme.js"></script>
+</head>
+<body>
+
+<header>
+  <h1>🔗 LINKS</h1>
+  <nav class="page-nav">
+    <a href="index.html">◆ DASHBOARD</a>
+    <a href="time.html">⏱ TIMESHEET</a>
+    <a href="worklog.html">💰 WORKLOG</a>
+    <a href="leave.html">🌴 FERIE</a>
+    <a href="jenkins.html">🔧 JENKINS</a>
+    <a href="versions.html">📦 VERSIONS</a>
+    <a href="copilot.html">🤖 COPILOT <span id="nav-copilot-total">–</span></a>
+    <a href="backlog.html">🗒 BACKLOG</a>
+    <a href="links.html" class="active">🔗 LINKS</a>
+  </nav>
+</header>
+
+<div id="content">Loading…</div>
+
+<script>
+const el = id => document.getElementById(id);
+
+function esc(s) { return String(s ?? '').replace(/[&<>"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c])); }
+
+// A Zoom join link (https://…zoom.us/j/<id>?pwd=…) goes straight into the Zoom
+// app via its zoommtg:// scheme, skipping Zoom's browser launcher page.
+function zoomApp(url) {
+  const m = /^https:\/\/((?:[\w-]+\.)*zoom\.us)\/j\/(\d+)\??([^#]*)/.exec(url);
+  return m && `zoommtg://${m[1]}/join?action=join&confno=${m[2]}${m[3] ? '&' + m[3] : ''}`;
+}
+
+function tile({label, url}) {
+  const app = zoomApp(url);
+  const host = url.replace(/^\w+:\/\/([^/?#]*).*$/, '$1');
+  return `<a class="link" href="${esc(app || url)}"${app ? '' : ' target="_blank" rel="noopener"'} title="${esc(url)}">
+    <span class="label">${esc(label)}</span><span class="host">${app ? 'opens the Zoom app' : esc(host)}</span></a>`;
+}
+
+async function load() {
+  try {
+    const r = await fetch('/api/links', {cache: 'no-store'});
+    if (!r.ok) throw new Error((await r.text()) || `HTTP ${r.status}`);
+    const {links} = await r.json();
+    el('content').innerHTML = links.length
+      ? `<div class="links">${links.map(tile).join('')}</div>`
+      : `<div class="empty">No links configured. Add them to <code>secrets/config</code> as
+         <code>LINKS</code> (one <code>Label|URL</code> per line).</div>`;
+  } catch (e) {
+    el('content').innerHTML = `<div class="empty">Could not load links — ${esc(e.message)}</div>`;
+  }
+}
+
+load();
+</script>
+<script>
+  (function () {
+    function loadCopilotNav() {
+      fetch('data/copilot.json', {cache:'no-store'}).then(r => r.json()).then(d => {
+        const el = document.getElementById('nav-copilot-total');
+        if (el) el.textContent = (d.my_month_total ?? 0).toLocaleString();
+      }).catch(() => {});
+    }
+    loadCopilotNav();
+    setInterval(loadCopilotNav, 5 * 60 * 1000);
+  })();
+</script>
+</body>
+</html>

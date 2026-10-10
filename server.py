@@ -12,6 +12,7 @@ import json
 import os
 import pathlib
 import re
+import socket
 import subprocess
 import sys
 import urllib.error
@@ -232,14 +233,13 @@ def _jira_secrets():
 
 
 def _config_var(name: str) -> str:
-    """Read a simple NAME="value" (or NAME=value) assignment from secrets/config."""
-    for line in (ROOT / "secrets" / "config").read_text().splitlines():
-        if line.startswith(name + "="):
-            val = line.split("=", 1)[1].strip()
-            if val.startswith('"') and val.endswith('"'):
-                val = val[1:-1].replace('\\"', '"')
-            return val
-    return ""
+    """Read a NAME="value" (or NAME=value) assignment from secrets/config. A
+    quoted value may span lines, like MASTER_BUILDS and VERSION_APPS."""
+    text = (ROOT / "secrets" / "config").read_text()
+    m = re.search(rf'^{re.escape(name)}=(?:"((?:[^"\\]|\\.)*)"|(.*))', text, re.M)
+    if not m:
+        return ""
+    return m.group(2).strip() if m.group(1) is None else m.group(1).replace('\\"', '"')
 
 
 # ── Backlog page ─────────────────────────────────────────────────────────────
@@ -913,7 +913,7 @@ _IMPACT_SEV = {"HIGH": "CRITICAL", "MEDIUM": "MAJOR", "LOW": "MINOR",
                "BLOCKER": "BLOCKER", "INFO": "INFO"}
 
 
-def _sonar_get(url: str, headers: dict) -> dict:
+def _get_json(url: str, headers: dict) -> dict:
     with urllib.request.urlopen(urllib.request.Request(url, headers=headers), timeout=20) as resp:
         return json.loads(resp.read())
 
@@ -1018,7 +1018,7 @@ def _fetch_sonar_issues(pr_id: str) -> str:
             **common,
         }
         iss_url = f"{sonar_base}/api/issues/search?" + urllib.parse.urlencode(iss_params)
-        iss_data = _sonar_get(iss_url, headers)
+        iss_data = _get_json(iss_url, headers)
         issues = iss_data.get("issues", [])
         total = iss_data.get("total", len(issues))
         paths = _component_paths(iss_data, project_key)
@@ -1051,7 +1051,7 @@ def _fetch_sonar_issues(pr_id: str) -> str:
             **common,
         }
         hs_url = f"{sonar_base}/api/hotspots/search?" + urllib.parse.urlencode(hs_params)
-        hs_data = _sonar_get(hs_url, headers)
+        hs_data = _get_json(hs_url, headers)
         hotspots = hs_data.get("hotspots", [])
         hpaths = _component_paths(hs_data, project_key)
         if hotspots:
@@ -1138,6 +1138,72 @@ def _fetch_pr_comments(pr_id: str) -> str:
     return "\n".join(lines)
 
 
+# ── Versions page ────────────────────────────────────────────────────────────
+# VERSION_APPS (secrets/config): one app per line, "Label|PROJECT/repoSlug|base
+# URL", with {env} in the URL standing in for each environment.
+VERSION_ENVS = ("lt", "ft", "et", "prep", "prod")
+
+
+def _health(base: str) -> dict:
+    """actuator/health. A DOWN app answers 503 with the usual JSON body."""
+    try:
+        return _get_json(f"{base}/actuator/health", {})
+    except urllib.error.HTTPError as e:
+        body = e.read()
+        if e.code == 503 and body.startswith(b"{"):
+            return json.loads(body)
+        raise
+
+
+def _env_status(base: str) -> dict:
+    """The build one environment runs — actuator/info's git.branch is the
+    build's `git describe` (v3.7.0.71-0-g6c19886a) — and its health."""
+    out = {"url": base}
+    try:
+        out["version"] = (_get_json(f"{base}/actuator/info", {}).get("git") or {}).get("branch") or ""
+        health = _health(base)
+        return {**out, "health": health.get("status") or "UNKNOWN",
+                "failing": sorted(k for k, c in (health.get("components") or {}).items()
+                                  if c.get("status") in ("DOWN", "OUT_OF_SERVICE"))}
+    except Exception as e:
+        if isinstance(getattr(e, "reason", None), socket.gaierror):
+            return {**out, "absent": True}  # no such host: not deployed there (udbyderportal has no ET)
+        return {**out, "error": str(e)}
+
+
+def _master_tag(stash_url: str, headers: dict, repo: str) -> dict:
+    """Newest tag on the default branch, like `git describe master`: the first
+    of master's commits that carries a tag, and how many commits master is past it."""
+    project, _, slug = repo.partition("/")
+    api = f"{stash_url}/rest/api/1.0/projects/{project}/repos/{slug}"
+    try:
+        tags = {}
+        for t in _get_json(f"{api}/tags?orderBy=MODIFICATION&limit=50", headers).get("values", []):
+            tags.setdefault(t["latestCommit"], t["displayId"])  # newest first: newest tag per commit wins
+        # ponytail: only master's last 50 commits vs the 50 newest tags; page both if a repo tags rarely
+        for ahead, c in enumerate(_get_json(f"{api}/commits?limit=50", headers).get("values", [])):
+            if c["id"] in tags:
+                return {"tag": tags[c["id"]], "commit": c["id"], "ahead": ahead}
+        return {"error": "no tag in master's last 50 commits"}
+    except Exception as e:
+        return {"error": str(e)}
+
+
+def _fetch_versions() -> dict:
+    stash_url, token = _load_secrets()
+    headers = {"Authorization": f"Bearer {token}"}
+    apps = [dict(zip(("label", "repo", "url"), (p.strip() for p in line.split("|"))))
+            for line in _config_var("VERSION_APPS").splitlines() if line.count("|") == 2]
+    with ThreadPoolExecutor(max_workers=32) as pool:
+        masters = [pool.submit(_master_tag, stash_url, headers, a["repo"]) for a in apps]
+        envs = [{e: pool.submit(_env_status, a["url"].rstrip("/").replace("{env}", e)) for e in VERSION_ENVS}
+                for a in apps]
+    for a, m, row in zip(apps, masters, envs):
+        a["master"] = m.result()
+        a["envs"] = {e: f.result() for e, f in row.items()}
+    return {"stash_url": stash_url, "envs": VERSION_ENVS, "apps": apps}
+
+
 class Handler(http.server.SimpleHTTPRequestHandler):
     def do_GET(self):
         if self.path.startswith("/api/comments"):
@@ -1154,6 +1220,12 @@ class Handler(http.server.SimpleHTTPRequestHandler):
             return
         if self.path.startswith("/api/jira-file"):
             self._handle_jira_file()
+            return
+        if self.path.startswith("/api/versions"):
+            self._handle_versions()
+            return
+        if self.path.startswith("/api/links"):
+            self._handle_links()
             return
         if self.path.startswith("/api/worklog-status"):
             self._handle_worklog_status()
@@ -1232,6 +1304,22 @@ class Handler(http.server.SimpleHTTPRequestHandler):
             self._respond(502, _http_err_msg(e))
         except Exception as e:
             self._respond(502, f"Jira error: {e}")
+
+    def _handle_versions(self):
+        try:
+            self._respond_json(200, _fetch_versions())
+        except Exception as e:
+            self._respond(502, f"Versions error: {e}")
+
+    def _handle_links(self):
+        # LINKS (secrets/config): one "Label|URL" per line. Kept out of the repo:
+        # a Zoom join link carries the meeting password.
+        try:
+            links = [dict(zip(("label", "url"), (p.strip() for p in line.split("|", 1))))
+                     for line in _config_var("LINKS").splitlines() if "|" in line]
+            self._respond_json(200, {"links": links})
+        except Exception as e:
+            self._respond(500, f"Links error: {e}")
 
     def _handle_issue_detail(self):
         qs = urllib.parse.parse_qs(urllib.parse.urlparse(self.path).query)
