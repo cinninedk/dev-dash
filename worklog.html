@@ -199,6 +199,7 @@
 
     .lt-vacation { color: var(--green); }
     .lt-sick { color: var(--red); }
+    .lt-child_sick { color: var(--red); }
     .lt-other { color: var(--yellow); }
     .note { color: var(--dim); font-size: 14px; margin-top: 6px; max-width: 760px; line-height: 1.4; }
   </style>
@@ -289,6 +290,27 @@ function workdaysElapsed(y, m, holidays) {
   return n;
 }
 
+// Sygdom, barns sygedag and "andet fravær" cancel norm: the hours never enter faktureret (not billable)
+// but they aren't hours owed either, so they come off the norm instead of
+// reading as being behind. Capped at one day's norm and only counted on days
+// that carry norm, so an over-long entry — or one landing on a weekend or
+// holiday — can't manufacture negative norm. `before` (a Date, or null for the
+// whole month) bounds it to days that have already happened.
+function absenceNormHours(y, m, holidays, dn, before) {
+  let total = 0;
+  const dim = daysInMonth(y, m);
+  for (let d = 1; d <= dim; d++) {
+    const dt = new Date(y, m - 1, d);
+    if (before && dt >= before) break;
+    const ds = ymd(y, m, d);
+    const wd = dt.getDay();
+    if (wd === 0 || wd === 6 || holidays.has(ds)) continue;
+    const lv = leaveByDate[ds];
+    if (lv) total += Math.min(lv.sick + lv.child_sick + lv.other, dn);
+  }
+  return total;
+}
+
 // ── load + index data ────────────────────────────────────────────────
 async function load() {
   [WH, TT] = await Promise.all([
@@ -338,7 +360,7 @@ async function load() {
 function rebuildLeave() {
   leaveByDate = {};
   for (const lv of WH.leave || []) {
-    const m = leaveByDate[lv.date] || (leaveByDate[lv.date] = {vacation: 0, sick: 0, other: 0});
+    const m = leaveByDate[lv.date] || (leaveByDate[lv.date] = {vacation: 0, sick: 0, child_sick: 0, other: 0});
     m[lv.type] = (m[lv.type] || 0) + lv.hours;
   }
 }
@@ -384,29 +406,62 @@ function faktureretToDate(Y, m) {
   return total;
 }
 
-// Ahead/behind hours for the running month, as of the start of today — a
-// partially-worked today is excluded on both sides (norm and faktureret) so
-// the number can't swing around while the day is still in progress.
-function normBalanceToDate(Y, m, holidays, dn) {
-  let normDone = 0, faktureret = 0;
-  const dim = daysInMonth(Y, m);
-  for (let d = 1; d <= dim; d++) {
-    const dt = new Date(Y, m - 1, d);
-    if (dt >= todayMidnight) break;
-    const ds = ymd(Y, m, d);
-    const wd = dt.getDay();
-    if (wd !== 0 && wd !== 6 && !holidays.has(ds)) normDone += dn;
-    faktureret += worked[ds] || 0;
-    const lv = leaveByDate[ds];
-    if (lv) faktureret += lv.vacation;
+// ── Arbejdstid: the working-time balance (37 t/uge) ──────────────────
+// What the contract owes, not what's billed: each workday owes dagsnormtimer,
+// and hours worked plus any leave that day (ferie, sygdom, barns sygedag,
+// andet) pay it off. Helligdage and weekends owe nothing. Leave covers at most
+// the day's norm, so leave logged on a weekend can't add hours. Short days
+// deduct, long days add. Billing (faktureret) is separate and alone drives
+// the bonus.
+function dayWork(ds, holidays, dn) {
+  const [y, m, d] = ds.split('-').map(Number);
+  const wd = new Date(y, m - 1, d).getDay();
+  const owed = wd === 0 || wd === 6 || holidays.has(ds) ? 0 : dn;
+  const lv = leaveByDate[ds];
+  const leave = lv ? Math.min(lv.vacation + lv.sick + lv.child_sick + lv.other, owed) : 0;
+  const w = worked[ds] || 0;
+  return {owed, worked: w, leave, diff: w + leave - owed};
+}
+
+// Balance of month m over the days before `before` (a Date; null = the whole
+// month). Sealed months only have the spreadsheet's month total, which is
+// worked + ferie, so their sygdom/barns sygedag/andet come from the leave list.
+// ISO week number (weeks start Monday; week 1 holds the year's first Thursday)
+function isoWeek(dt) {
+  const t = new Date(Date.UTC(dt.getFullYear(), dt.getMonth(), dt.getDate()));
+  t.setUTCDate(t.getUTCDate() + 3 - (t.getUTCDay() + 6) % 7);
+  const jan4 = new Date(Date.UTC(t.getUTCFullYear(), 0, 4));
+  return 1 + Math.round(((t - jan4) / 86400000 - 3 + (jan4.getUTCDay() + 6) % 7) / 7);
+}
+
+// This week's balance, Monday up to yesterday (may reach into last month)
+function weekBalance(holidays, dn) {
+  let bal = 0, owed = 0;
+  const mon = new Date(todayMidnight);
+  mon.setDate(mon.getDate() - (mon.getDay() + 6) % 7);
+  for (const d = new Date(mon); d < todayMidnight; d.setDate(d.getDate() + 1)) {
+    const r = dayWork(ymd(d.getFullYear(), d.getMonth() + 1, d.getDate()), holidays, dn);
+    bal += r.diff; owed += r.owed;
   }
-  return faktureret - normDone;
+  return {bal, owed};
+}
+
+function workBalance(Y, m, holidays, dn, before) {
+  const sealed = isSealed(m);
+  let bal = sealed ? (yearCfg.seed_months[m] ?? 0) : 0;
+  for (let d = 1; d <= daysInMonth(Y, m); d++) {
+    if (before && new Date(Y, m - 1, d) >= before) break;
+    const ds = ymd(Y, m, d), r = dayWork(ds, holidays, dn), lv = leaveByDate[ds];
+    bal += sealed ? (lv ? Math.min(lv.sick + lv.child_sick + lv.other, r.owed) : 0) - r.owed : r.diff;
+  }
+  return bal;
 }
 
 function monthStats(m) {
   const c = yearCfg.constants;
   const Y = parseInt(selectedYear, 10);
-  const norm = workdaysInMonth(Y, m, holidaySet) * c.dagsnormtimer;
+  const norm = workdaysInMonth(Y, m, holidaySet) * c.dagsnormtimer
+    - absenceNormHours(Y, m, holidaySet, c.dagsnormtimer, null);
   const threshold = c.bonustimegraense;
   const sealed = isSealed(m);
   const ph = phase(m);
@@ -430,8 +485,13 @@ function monthStats(m) {
   const realHours = Math.max(0, faktureret - threshold);
   const realBonus = realHours * c.bonustimeloen;
 
+  // working-time balance: whole month once over, up to yesterday while running
+  const workBal = ph === 'past' ? workBalance(Y, m, holidaySet, c.dagsnormtimer, null)
+    : ph === 'current' ? workBalance(Y, m, holidaySet, c.dagsnormtimer, todayMidnight)
+    : null;
+
   return {m, norm, threshold, sealed, workedH, vac, sick, other,
-          faktureret, estBonus, realHours, realBonus, phase: ph};
+          faktureret, estBonus, realHours, realBonus, workBal, phase: ph};
 }
 
 // Detect a still-running idle segment that was likely left on overnight.
@@ -486,10 +546,6 @@ function render() {
     const overUnder = cur.faktureret - cur.threshold;
     const gapKnown = overUnder > 0;
     const gap = cur.realBonus - cur.estBonus;
-    // ahead/behind norm for THIS month only — resets every month, so it lives
-    // here rather than in the year summary. Today itself is excluded on both
-    // sides (see normBalanceToDate) so a partial today can't swing it either way.
-    const monthBal = normBalanceToDate(Y, cur.m, holidaySet, c.dagsnormtimer);
     html += `<div class="section"><div class="section-title">Denne måned — ${MONTHS[cur.m - 1]} ${Y}</div><div class="cards">`;
     html += card('hero', 'Faktureret timer', `${hrs(cur.faktureret)}<span style="font-size:15px;color:var(--dim)"> / ${cur.threshold} t</span>`,
       overUnder >= 0 ? `<span class="pos">+${hrs(overUnder)} bonustimer</span>` : `mangler ${hrs(-overUnder)} t til bonus`);
@@ -498,15 +554,22 @@ function render() {
       ? `<span class="${gap >= 0 ? 'pos' : 'neg'}">${gap >= 0 ? '+' : ''}${kr(gap)} kr</span>`
       : `<span class="muted">0 kr</span>`,
       gapKnown ? `arbejdet ${hrs(cur.workedH)} t · ferie ${hrs(cur.vac)} t` : `under ${cur.threshold} t bonusgrænse endnu`);
-    html += card('hero', 'Timer ift. norm', `<span class="${monthBal >= 0 ? 'pos' : 'neg'}">${monthBal >= 0 ? '+' : ''}${hrs(monthBal)} t</span>`,
-      monthBal >= 0 ? 'foran' : 'bagud');
+    // working time vs the month's norm (37 t/uge), not billing — see dayWork
+    const dn = c.dagsnormtimer;
+    const normToDate = workdaysElapsed(Y, cur.m, holidaySet) * dn
+      - (holidaySet.has(ymd(Y, cur.m, today.getDate())) || [0, 6].includes(today.getDay()) ? 0 : dn);
+    const wk = weekBalance(holidaySet, dn);
+    html += card('hero', 'Denne uge', wk.owed ? `<span class="${wk.bal >= 0 ? 'pos' : 'neg'}">${wk.bal >= 0 ? '+' : ''}${hrs(wk.bal)} t</span>` : '<span class="muted">–</span>',
+      wk.owed ? `uge ${isoWeek(today)} · ${hrs(wk.owed + wk.bal)} af ${hrs(wk.owed)} t til og med i går` : `uge ${isoWeek(today)} · ugen er lige begyndt`);
+    html += card('hero', 'Arbejdstid ift. norm', `<span class="${cur.workBal >= 0 ? 'pos' : 'neg'}">${cur.workBal >= 0 ? '+' : ''}${hrs(cur.workBal)} t</span>`,
+      `${hrs(normToDate + cur.workBal)} af ${hrs(normToDate)} t til og med i går · måned ${hrs(workdaysInMonth(Y, cur.m, holidaySet) * dn)} t`);
     html += `</div></div>`;
   }
 
   // month table
   html += `<div class="section"><div class="section-title">Måned for måned</div>`;
   html += `<table class="months"><thead><tr>
-    <th>Måned</th><th>Norm</th><th>Tilbage</th><th>Faktureret</th><th>Est. bonus</th><th>Realiseret</th><th>Δ</th></tr></thead><tbody>`;
+    <th>Måned</th><th>Norm</th><th>Tilbage</th><th>Faktureret</th><th>Est. bonus</th><th>Realiseret</th><th>Δ</th><th title="Arbejdstid: arbejdet + fravær minus dagsnorm. Ikke fakturering.">Arbejdstid ±</th></tr></thead><tbody>`;
   let tNorm = 0, tLeft = 0, tBon = 0, tEst = 0, tReal = 0;
   for (const s of stats) {
     const showReal = s.phase !== 'future';
@@ -525,7 +588,10 @@ function render() {
       const todayCounts = twd !== 0 && twd !== 6 && !holidaySet.has(tds);
       // workdaysElapsed already books today as a full norm day; swap that for
       // the hours genuinely worked today
-      let elapsedNorm = workdaysElapsed(Y, s.m, holidaySet) * dn;
+      // s.norm already has the whole month's sygdom/andet removed; take the elapsed
+      // part off this side too, so only future absence stays in Tilbage.
+      let elapsedNorm = workdaysElapsed(Y, s.m, holidaySet) * dn
+        - absenceNormHours(Y, s.m, holidaySet, dn, new Date(Y, s.m - 1, today.getDate() + 1));
       if (todayCounts) elapsedNorm += (worked[tds] || 0) - dn;
       normLeft = Math.max(0, s.norm - elapsedNorm);
     }
@@ -542,16 +608,18 @@ function render() {
       <td>${kr(s.estBonus)}</td>
       <td>${showReal ? kr(s.realBonus) : '–'}</td>
       <td class="${!showReal ? '' : delta >= 0 ? 'pos' : 'neg'}">${showReal ? (delta >= 0 ? '+' : '') + kr(delta) : '–'}</td>
+      <td class="${s.workBal == null ? '' : s.workBal >= 0 ? 'pos' : 'neg'}">${s.workBal == null ? '–' : (s.workBal >= 0 ? '+' : '') + hrs(s.workBal)}</td>
     </tr>`;
-    if (open) html += monthDetailRow(s, 7);
+    if (open) html += monthDetailRow(s, 8);
   }
   html += `<tr class="totals">
     <td>I alt</td><td>${hrs(tNorm)}</td><td>${hrs(tLeft)}</td><td>${hrs(tBon)}</td>
-    <td>${kr(tEst)}</td><td>${kr(tReal)}</td><td>${(tReal - tEst) >= 0 ? '+' : ''}${kr(tReal - tEst)}</td></tr>`;
+    <td>${kr(tEst)}</td><td>${kr(tReal)}</td><td>${(tReal - tEst) >= 0 ? '+' : ''}${kr(tReal - tEst)}</td><td></td></tr>`;
   html += `</tbody></table>`;
   html += `<div class="note">「seed」 = importeret fra regnearket (før tidsregistrering tog over).
     「norm」 = fremtidig måned beregnet som fuldt arbejdet. Faktureret = registreret arbejdstid + ferie;
-    sygdom og andet fravær tæller ikke med i bonus. Bonustimegrænse ${c.bonustimegraense} t/md, bonustimeløn ${hrs(c.bonustimeloen)} kr.</div>`;
+    sygdom, barns sygedag og andet fravær tæller hverken som faktureret eller i bonus og trækkes fra normen.
+    Bonustimegrænse ${c.bonustimegraense} t/md, bonustimeløn ${hrs(c.bonustimeloen)} kr.</div>`;
   html += `</div>`;
 
   // year summary
@@ -587,33 +655,38 @@ function monthDetailRow(s, colspan) {
   } else {
     const dim = daysInMonth(Y, s.m);
     let rows = '';
-    let running = 0;                           // cumulative Δ norm, month-to-date
+    let running = 0;                           // cumulative working-time balance
     for (let d = 1; d <= dim; d++) {
       const ds = ymd(Y, s.m, d);
+      const dt = new Date(Y, s.m - 1, d);
+      if (dt > today) break;
       const h = worked[ds] || 0;
       const lv = leaveByDate[ds];
-      if (!h && !lv) continue;                 // only days with hours or leave
-      const wd = new Date(Y, s.m - 1, d).getDay();
+      const r = dayWork(ds, holidaySet, dn);
+      if (!h && !lv && !r.owed) continue;      // weekends/holidays with nothing on them
+      const isToday = dt >= todayMidnight;     // still running: shown, not in the balance yet
+      const wd = dt.getDay();
       const brkLines = Object.entries(workedDetail[ds] || {})
         .sort((a, b) => b[1] - a[1])
         .map(([k, hh]) => `<div>${keyLabel(k)} ${hrs(hh)}</div>`);
       if (lv) {
         if (lv.vacation) brkLines.push(`<div class="lt-vacation">ferie ${hrs(lv.vacation)}</div>`);
         if (lv.sick) brkLines.push(`<div class="lt-sick">syg ${hrs(lv.sick)}</div>`);
+        if (lv.child_sick) brkLines.push(`<div class="lt-child_sick">barn syg ${hrs(lv.child_sick)}</div>`);
         if (lv.other) brkLines.push(`<div class="lt-other">andet ${hrs(lv.other)}</div>`);
       }
-      const diff = h - (lv ? 0 : dn);          // vs day norm, for worked days
-      running += diff;
+      const diff = r.diff;
+      if (!isToday) running += diff;
       rows += `<tr>
-        <td>${pad(d)}. ${DOW[wd]}</td>
+        <td>${pad(d)}. ${DOW[wd]}${isToday ? ' (i dag)' : ''}</td>
         <td class="r">${h ? hrs(h) + ' t' : '–'}</td>
-        <td class="r ${h >= dn ? 'pos' : h ? 'neg' : ''}">${h ? (diff >= 0 ? '+' : '') + hrs(diff) : ''}</td>
-        <td class="r ${running >= 0 ? 'pos' : 'neg'}">${(running >= 0 ? '+' : '') + hrs(running)}</td>
+        <td class="r ${diff >= 0 ? 'pos' : 'neg'}">${(diff >= 0 ? '+' : '') + hrs(diff)}</td>
+        <td class="r ${running >= 0 ? 'pos' : 'neg'}">${isToday ? '' : (running >= 0 ? '+' : '') + hrs(running)}</td>
         <td class="brk">${brkLines.join('')}</td>
       </tr>`;
     }
     inner = rows
-      ? `<table class="daybreak"><thead><tr><th>Dag</th><th class="r">Timer</th><th class="r">Δ norm</th><th class="r">Saldo</th><th>Fordeling</th></tr></thead><tbody>${rows}</tbody></table>`
+      ? `<table class="daybreak"><thead><tr><th>Dag</th><th class="r">Timer</th><th class="r" title="Arbejdet + fravær minus dagsnorm">Δ dag</th><th class="r" title="Arbejdstid-saldo i måneden, til og med i går">Saldo</th><th>Fordeling</th></tr></thead><tbody>${rows}</tbody></table>`
       : `<div class="muted">Ingen registreret tid i ${MONTHS[s.m - 1]}.</div>`;
   }
   return `<tr class="detail"><td colspan="${colspan}"><div class="detail-box">${inner}</div></td></tr>`;

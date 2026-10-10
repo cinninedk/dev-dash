@@ -166,8 +166,30 @@
     table.leave td { padding: 3px 10px; border-bottom: 1px solid var(--row-border-soft); }
     .lt-vacation { color: var(--green); }
     .lt-sick { color: var(--red); }
+    .lt-child_sick { color: var(--red); }
     .lt-other { color: var(--yellow); }
     .note { color: var(--dim); font-size: 14px; margin-top: 6px; max-width: 760px; line-height: 1.4; }
+
+    /* day picker: click a day, or two for a range */
+    .cal { border: 1px solid var(--border); background: var(--panel); padding: 8px 10px; user-select: none; }
+    .cal-head { display: flex; align-items: center; justify-content: space-between; margin-bottom: 6px; color: var(--bright); letter-spacing: 1px; }
+    .cal-head button { background: none; border: 1px solid transparent; color: var(--dim); font: inherit; cursor: pointer; padding: 0 8px; }
+    .cal-head button:hover { color: var(--bright); border-color: var(--border); }
+    .cal-grid { display: grid; grid-template-columns: repeat(7, 34px); gap: 2px; }
+    .cal-dow { color: var(--dim); font-size: 13px; text-align: center; }
+    .cal-day { height: 30px; display: flex; align-items: center; justify-content: center; font-size: 15px;
+               border: 1px solid transparent; cursor: pointer; position: relative; color: var(--text); }
+    .cal-day:hover { border-color: var(--bright); }
+    .cal-day.off { color: var(--dim-faint); }
+    .cal-day.today { border-color: var(--border); }
+    .cal-day.in { background: var(--sel-bg); color: var(--bright); }
+    .cal-day.edge { border-color: var(--bright); color: var(--bright); font-weight: 600; }
+    .cal-day[class*="has-"]::after { content: ""; position: absolute; bottom: 3px; left: 30%; right: 30%; height: 2px; background: currentColor; }
+    .cal-day.has-vacation::after { background: var(--green); }
+    .cal-day.has-sick::after, .cal-day.has-child_sick::after { background: var(--red); }
+    .cal-day.has-other::after { background: var(--yellow); }
+    .cal-pick { color: var(--dim); font-size: 14px; margin-top: 6px; min-height: 1.4em; }
+    .cal-pick b { color: var(--bright); font-weight: 600; }
     .muted { color: var(--dim-faint) !important; }
     .neg { color: var(--red) !important; }
   </style>
@@ -229,7 +251,11 @@ function applyYear() {
   render();
 }
 
-function changeYear(y) { selectedYear = String(y); applyYear(); }
+function changeYear(y) {
+  selectedYear = String(y);
+  calY = Number(y); calM = calY === curY ? curM : 1;   // calendar follows the year
+  applyYear();
+}
 
 function render() {
   if (!yearCfg) { el('content').innerHTML = `<p class="muted">Ingen data for ${selectedYear}.</p>`; return; }
@@ -242,11 +268,11 @@ function renderLeave() {
   const quota = (c.feriedage || 0) + (c.feriefridag || 0);
   const rows = (WH.leave || []).filter(l => l.date.slice(0, 4) === selectedYear)
     .sort((a, b) => b.date.localeCompare(a.date));
-  const labels = {vacation: 'Ferie', sick: 'Sygdom', other: 'Andet'};
+  const labels = {vacation: 'Ferie', sick: 'Sygdom', child_sick: 'Barns sygedag', other: 'Andet'};
 
   // day-equivalent totals per type — a "day" is dagsnormtimer hours, so a half
   // day (e.g. 3.7t) counts as half a day rather than a whole one.
-  const totalsH = {vacation: 0, sick: 0, other: 0};
+  const totalsH = {vacation: 0, sick: 0, child_sick: 0, other: 0};
   for (const l of rows) totalsH[l.type] = (totalsH[l.type] || 0) + l.hours;
   const vacDays = totalsH.vacation / dn;
   const vacLeft = quota - vacDays;
@@ -254,8 +280,9 @@ function renderLeave() {
   let html = `<div class="section"><div class="cards">`;
   html += card('Feriedage brugt', `${hrs(vacDays)}<span style="font-size:15px;color:var(--dim)"> / ${quota}</span>`,
     vacLeft >= 0 ? `${hrs(vacLeft)} dage tilbage` : `<span class="neg">${hrs(-vacLeft)} dage over kvote</span>`);
-  html += card('Sygedage', hrs(totalsH.sick / dn), `${hrs(totalsH.sick)} t i ${selectedYear}`, true);
-  html += card('Andet fravær', hrs(totalsH.other / dn), `${hrs(totalsH.other)} t i ${selectedYear}`, true);
+  html += card('Sygedage', hrs(totalsH.sick / dn), `${hrs(totalsH.sick)} t i ${selectedYear} · trækkes fra norm`, true);
+  html += card('Barns sygedage', hrs(totalsH.child_sick / dn), `${hrs(totalsH.child_sick)} t i ${selectedYear} · trækkes fra norm`, true);
+  html += card('Andet fravær', hrs(totalsH.other / dn), `${hrs(totalsH.other)} t i ${selectedYear} · trækkes fra norm`, true);
   html += `</div></div>`;
 
   let list = rows.length
@@ -274,11 +301,11 @@ function renderLeave() {
         <div class="row"><label>Type</label>
           <select id="lv-type">
             <option value="vacation">Ferie (tæller i bonus)</option>
-            <option value="sick">Sygdom</option>
-            <option value="other">Andet fravær</option>
+            <option value="sick">Sygdom (trækkes fra norm)</option>
+            <option value="child_sick">Barns sygedag (trækkes fra norm)</option>
+            <option value="other">Andet fravær (trækkes fra norm)</option>
           </select></div>
-        <div class="row"><label>Fra</label><input type="date" id="lv-start" value="${ymd(curY, curM, today.getDate())}"></div>
-        <div class="row"><label>Til</label><input type="date" id="lv-end" placeholder="(samme dag)"></div>
+        <div id="lv-cal">${calendarHtml()}</div>
         <div class="row"><label>Timer/dag</label><input type="number" id="lv-hours" value="7.4" step="0.1" min="0" style="width:80px"></div>
         <div class="row"><label>Note</label><input type="text" id="lv-note" placeholder="(valgfri)"></div>
         <button class="btn" onclick="addLeave()">+ Tilføj</button>
@@ -288,6 +315,70 @@ function renderLeave() {
     </div></div>`;
 
   return html;
+}
+
+// ── day picker ─────────────────────────────────────────────────────────
+// Click a day to pick it; click a second day for a range (either order).
+// Existing leave is underlined in its colour; weekends and holidays are dim
+// (a range can span them — they're skipped when the entries are made).
+let calY = curY, calM = curM;    // month shown
+let pickStart = null, pickEnd = null;
+const MONTHS_DA = ['Januar','Februar','Marts','April','Maj','Juni','Juli','August','September','Oktober','November','December'];
+const DOW_DA = ['Man','Tir','Ons','Tor','Fre','Lør','Søn'];
+
+function calendarHtml() {
+  const leaveOn = {};
+  for (const l of WH.leave || []) leaveOn[l.date] = l.type;
+  const first = new Date(calY, calM - 1, 1);
+  const lead = (first.getDay() + 6) % 7;                    // Monday-first
+  const dim = new Date(calY, calM, 0).getDate();
+  const todayDs = ymd(curY, curM, today.getDate());
+  const [lo, hi] = pickEnd && pickEnd < pickStart ? [pickEnd, pickStart] : [pickStart, pickEnd || pickStart];
+  let cells = DOW_DA.map(d => `<div class="cal-dow">${d}</div>`).join('') + '<div></div>'.repeat(lead);
+  for (let d = 1; d <= dim; d++) {
+    const ds = ymd(calY, calM, d), wd = new Date(calY, calM - 1, d).getDay();
+    const cls = ['cal-day',
+      (wd === 0 || wd === 6 || allHolidays.has(ds)) && 'off',
+      ds === todayDs && 'today',
+      lo && ds >= lo && ds <= hi && 'in',
+      (ds === lo || ds === hi) && 'edge',
+      leaveOn[ds] && `has-${leaveOn[ds]}`].filter(Boolean).join(' ');
+    cells += `<div class="${cls}" onclick="pickDay('${ds}')" title="${ds}${leaveOn[ds] ? ' · allerede registreret' : ''}">${d}</div>`;
+  }
+  return `<div class="cal">
+    <div class="cal-head"><button onclick="moveCal(-1)" title="Forrige måned">◂</button>
+      <span>${MONTHS_DA[calM - 1]} ${calY}</span>
+      <button onclick="moveCal(1)" title="Næste måned">▸</button></div>
+    <div class="cal-grid">${cells}</div></div>
+    <div class="cal-pick">${pickText(lo, hi)}</div>`;
+}
+
+function pickText(lo, hi) {
+  if (!lo) return 'Klik en dag — eller to for et interval';
+  const fmt = ds => new Date(ds + 'T00:00:00').toLocaleDateString('da-DK', {day: 'numeric', month: 'short'});
+  const n = workdaysBetween(lo, hi).length;
+  return `Valgt: <b>${lo === hi ? fmt(lo) : `${fmt(lo)} – ${fmt(hi)}`}</b> · ${n} hverdag${n === 1 ? '' : 'e'}`;
+}
+
+function workdaysBetween(lo, hi) {
+  const out = [];
+  for (let d = new Date(lo + 'T00:00:00'); d <= new Date(hi + 'T00:00:00'); d.setDate(d.getDate() + 1)) {
+    const wd = d.getDay(), ds = ymd(d.getFullYear(), d.getMonth() + 1, d.getDate());
+    if (wd !== 0 && wd !== 6 && !allHolidays.has(ds)) out.push(ds);
+  }
+  return out;
+}
+
+function pickDay(ds) {
+  if (!pickStart || pickEnd) { pickStart = ds; pickEnd = null; }
+  else pickEnd = ds;
+  el('lv-cal').innerHTML = calendarHtml();
+}
+
+function moveCal(step) {
+  calM += step;
+  if (calM < 1) { calM = 12; calY--; } else if (calM > 12) { calM = 1; calY++; }
+  el('lv-cal').innerHTML = calendarHtml();
 }
 
 function card(label, value, sub, muted) {
@@ -306,26 +397,18 @@ async function postLeave(body) {
 
 async function addLeave() {
   const type = el('lv-type').value;
-  const start = el('lv-start').value;
-  const end = el('lv-end').value || start;
+  if (!pickStart) { alert('Vælg en dag i kalenderen'); return; }
+  const [start, end] = pickEnd && pickEnd < pickStart ? [pickEnd, pickStart] : [pickStart, pickEnd || pickStart];
   const hoursRaw = el('lv-hours').value.trim();
   const perDay = hoursRaw === '' ? yearCfg.constants.dagsnormtimer : parseFloat(hoursRaw);
   const note = el('lv-note').value.trim();
-  if (!start) { alert('Vælg en startdato'); return; }
-  if (end < start) { alert('Slutdato er før startdato'); return; }
-
-  const entries = [];
-  for (let d = new Date(start + 'T00:00:00'); d <= new Date(end + 'T00:00:00'); d.setDate(d.getDate() + 1)) {
-    const wd = d.getDay();
-    if (wd === 0 || wd === 6) continue;
-    const ds = ymd(d.getFullYear(), d.getMonth() + 1, d.getDate());
-    if (allHolidays.has(ds)) continue;
-    entries.push({date: ds, type, hours: perDay, note});
-  }
+  const entries = workdaysBetween(start, end).map(ds => ({date: ds, type, hours: perDay, note}));
   if (!entries.length) { alert('Ingen hverdage i intervallet'); return; }
   try {
     const res = await postLeave({action: 'add', entries});
-    WH.leave = res.leave; render();
+    WH.leave = res.leave;
+    pickStart = pickEnd = null;
+    render();
   } catch (e) { alert('Kunne ikke gemme: ' + e.message); }
 }
 

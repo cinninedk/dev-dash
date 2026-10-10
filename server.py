@@ -44,7 +44,7 @@ TIMETRACK = DATA_DIR / "timetrack.json"
 WORKLOG_LEDGER = DATA_DIR / "jira-worklog.json"
 WORKHOURS = DATA_DIR / "work-hours.json"
 IDLE_KEY  = "__IDLE__"
-LEAVE_TYPES = ("vacation", "sick", "other")
+LEAVE_TYPES = ("vacation", "sick", "child_sick", "other")
 
 JIRA_KEY_RE = re.compile(r"^[A-Z][A-Z0-9]*-\d+$")
 _DATE_RE = re.compile(r"^\d{4}-\d{2}-\d{2}$")
