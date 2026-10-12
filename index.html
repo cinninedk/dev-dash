@@ -495,7 +495,7 @@
     /* ── JIRA KANBAN ── */
     #kanban-cols {
       display: grid;
-      grid-template-columns: repeat(5, minmax(min-content, 1fr));
+      grid-template-columns: repeat(5, minmax(0, 1fr));
       grid-auto-rows: 1fr;
       flex: 1;
       overflow: hidden;
@@ -561,7 +561,7 @@
     }
 
     .card-top {
-      display: flex; gap: 6px; align-items: center; flex-wrap: nowrap;
+      display: flex; gap: 6px; align-items: center; flex-wrap: wrap;
     }
     .card-key {
       color: var(--bright); font-size: 17px;
@@ -1672,14 +1672,14 @@
     if (nextMode) {
       nextEl.style.order = '-1';
       const rest = visibleCols.filter(id => id !== 'col-next');
-      gridParts = ['minmax(min-content, 2fr)', ...rest.map(() => 'minmax(min-content, 1fr)')];
+      gridParts = ['minmax(0, 2fr)', ...rest.map(() => 'minmax(0, 1fr)')];
     } else if (forceNextTask) {
       nextEl.style.order = '-1';
       const rest = visibleCols.filter(id => id !== 'col-next');
-      gridParts = ['minmax(min-content, 1fr)', ...rest.map(() => 'minmax(min-content, 1fr)')];
+      gridParts = ['minmax(0, 1fr)', ...rest.map(() => 'minmax(0, 1fr)')];
     } else {
       nextEl.style.order = '';
-      gridParts = visibleCols.map(() => 'minmax(min-content, 1fr)');
+      gridParts = visibleCols.map(() => 'minmax(0, 1fr)');
     }
     document.getElementById('kanban-cols').style.gridTemplateColumns = gridParts.join(' ');
 
