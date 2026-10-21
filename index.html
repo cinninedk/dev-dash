@@ -1520,6 +1520,8 @@
       const elapsedAdd = isTracking ? computeElapsed() : 0;
       trackedTime = formatElapsed(baseSeconds + elapsedAdd);
     }
+    // PR / blocker badges only matter until the work leaves IMPLEMENT
+    const pastImplement = ['QUALITY ASSURANCE','BUSINESS VALIDATION','RESOLVED'].includes(issue.status);
     return `
       <div class="jira-card${extraClass ? ' ' + extraClass : ''}" data-issue-key="${esc(issue.key)}">
         <div class="card-top">
@@ -1535,10 +1537,10 @@
           <span class="type-badge ${typeClass(issue.type)}">${esc(issue.type ?? '?')}</span>
           ${issue.in_current_sprint === false && ['OPEN','REOPENED','IMPLEMENT'].includes(issue.status) ? '<span class="no-sprint-badge">NOT IN SPRINT!</span>' : ''}
           ${activityBadges(issue)}
-          ${prBadge(issue.prs)}
+          ${pastImplement ? '' : prBadge(issue.prs)}
           ${issue.teknisk_qa && !hideTqaBadge ? '<span class="tqa-badge">TEKN·QA</span>' : ''}
           ${issue.parent_key && extraClass !== 'subtask-card' ? `<span class="parent-ref-badge">↑ ${esc(issue.parent_key)}</span>` : ''}
-          ${['QUALITY ASSURANCE','BUSINESS VALIDATION','RESOLVED'].includes(issue.status) ? '' : (issue.blocked_by ?? []).map(b => {
+          ${pastImplement ? '' : (issue.blocked_by ?? []).map(b => {
             const handled = (b.status === 'IMPLEMENT' && b.mine) || ['QUALITY ASSURANCE','BUSINESS VALIDATION','RESOLVED'].includes(b.status);
             return `<span class="blocked-badge${handled ? '' : ' glow'}">BLOCKED by ${esc(b.key)}</span>`;
           }).join('')}
