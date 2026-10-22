@@ -186,7 +186,8 @@ qg_label() {
     esac
 }
 
-# Single curl: returns count of open (unresolved) comments for a PR
+# Single curl: returns count of open (unresolved) comment threads on a PR,
+# not counting threads I started myself
 get_unresolved_comments() {
     local project="$1" slug="$2" pr_id="$3"
     local count=0 start=0 is_last="false"
@@ -198,7 +199,7 @@ get_unresolved_comments() {
             2>/dev/null) || break
         [ -z "$body" ] && break
         local page_count
-        page_count=$(echo "$body" | jq '[.values[]? | select(.action == "COMMENTED" and (.comment.parent == null) and (.comment.state != "RESOLVED") and (.comment.threadResolved != true))] | length' 2>/dev/null || echo 0)
+        page_count=$(echo "$body" | jq --arg me "$BB_USERNAME" '[.values[]? | select(.action == "COMMENTED" and (.comment.parent == null) and (.comment.state != "RESOLVED") and (.comment.threadResolved != true) and (.comment.author.name != $me))] | length' 2>/dev/null || echo 0)
         count=$((count + page_count))
         is_last=$(echo "$body" | jq -r '.isLastPage // true')
         start=$(echo "$body" | jq -r '.nextPageStart // 0')
