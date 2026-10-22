@@ -480,6 +480,7 @@ poll_jira() {
         parent_key: (.fields.parent.key // null),
         teknisk_qa: ((.fields.labels // []) | any(. == "teknisk_QA")),
         unassigned: (.fields.assignee == null),
+        assignee:   (.fields.assignee.displayName // null),
         blocked_by: [(.fields.issuelinks // [])[] | select(.type.inward == "is blocked by" and .inwardIssue != null) | {key: .inwardIssue.key, status: (.inwardIssue.fields.status.name | ascii_upcase)}],
         activity:   activity($me)
     }]'

@@ -1538,6 +1538,9 @@
           ${issue.in_current_sprint === false && ['OPEN','REOPENED','IMPLEMENT'].includes(issue.status) ? '<span class="no-sprint-badge">NOT IN SPRINT!</span>' : ''}
           ${activityBadges(issue)}
           ${pastImplement ? '' : prBadge(issue.prs)}
+          ${issue.status === 'QUALITY ASSURANCE' ? (issue.assignee
+            ? `<span class="parent-ref-badge" title="Assignee: ${esc(issue.assignee)}">${esc(issue.assignee.split(' ')[0])}</span>`
+            : '<span class="parent-ref-badge">Waiting</span>') : ''}
           ${issue.teknisk_qa && !hideTqaBadge ? '<span class="tqa-badge">TEKN·QA</span>' : ''}
           ${issue.parent_key && extraClass !== 'subtask-card' ? `<span class="parent-ref-badge">↑ ${esc(issue.parent_key)}</span>` : ''}
           ${pastImplement ? '' : (issue.blocked_by ?? []).map(b => {
