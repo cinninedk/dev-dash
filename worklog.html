@@ -434,12 +434,13 @@ function isoWeek(dt) {
   return 1 + Math.round(((t - jan4) / 86400000 - 3 + (jan4.getUTCDay() + 6) % 7) / 7);
 }
 
-// This week's balance, Monday up to yesterday (may reach into last month)
+// This week's balance, Monday through today (worked so far) (may reach into last month)
 function weekBalance(holidays, dn) {
   let bal = 0, owed = 0;
   const mon = new Date(todayMidnight);
   mon.setDate(mon.getDate() - (mon.getDay() + 6) % 7);
-  for (const d = new Date(mon); d < todayMidnight; d.setDate(d.getDate() + 1)) {
+  const end = new Date(todayMidnight); end.setDate(end.getDate() + 1);
+  for (const d = new Date(mon); d < end; d.setDate(d.getDate() + 1)) {
     const r = dayWork(ymd(d.getFullYear(), d.getMonth() + 1, d.getDate()), holidays, dn);
     bal += r.diff; owed += r.owed;
   }
@@ -559,7 +560,7 @@ function render() {
     const normToDate = workdaysElapsed(Y, cur.m, holidaySet) * dn;   // incl. today, as cur.workBal
     const wk = weekBalance(holidaySet, dn);
     html += card('hero', 'Denne uge', wk.owed ? `<span class="${wk.bal >= 0 ? 'pos' : 'neg'}">${wk.bal >= 0 ? '+' : ''}${hrs(wk.bal)} t</span>` : '<span class="muted">–</span>',
-      wk.owed ? `uge ${isoWeek(today)} · ${hrs(wk.owed + wk.bal)} af ${hrs(wk.owed)} t til og med i går` : `uge ${isoWeek(today)} · ugen er lige begyndt`);
+      wk.owed ? `uge ${isoWeek(today)} · ${hrs(wk.owed + wk.bal)} af ${hrs(wk.owed)} t til og med i dag` : `uge ${isoWeek(today)} · ugen er lige begyndt`);
     html += card('hero', 'Arbejdstid ift. norm', `<span class="${cur.workBal >= 0 ? 'pos' : 'neg'}">${cur.workBal >= 0 ? '+' : ''}${hrs(cur.workBal)} t</span>`,
       `${hrs(normToDate + cur.workBal)} af ${hrs(normToDate)} t til og med i dag · måned ${hrs(workdaysInMonth(Y, cur.m, holidaySet) * dn)} t`);
     html += `</div></div>`;
