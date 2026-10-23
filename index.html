@@ -1265,12 +1265,13 @@
     setTimeout(() => { btn.textContent = orig; }, 900);
   }
 
-  // Copy a Mattermost-pastable markdown link, e.g. [STILLOGIN-805](https://jira.../browse/STILLOGIN-805).
+  // Copy a Mattermost-pastable markdown link, e.g. [STILLOGIN-805 Fix \[login\]](https://jira.../browse/STILLOGIN-805).
   async function copyIssueLink(key, btn) {
     const orig = btn.textContent;
     try {
       if (!JIRA) throw new Error('Jira URL not loaded yet');
-      await navigator.clipboard.writeText(`[${key}](${JIRA}/browse/${key})`);
+      const text = `${key} ${btn.dataset.summary || ''}`.trim().replace(/[[\]]/g, '\\$&');
+      await navigator.clipboard.writeText(`[${text}](${JIRA}/browse/${key})`);
       btn.textContent = '✓';
     } catch (e) {
       console.error('copy issue link:', e);
@@ -1511,7 +1512,7 @@
       ? `<a href="${url}" target="_blank" rel="noopener" style="color:${keyColor};text-decoration:none">${esc(issue.key)}</a>`
       : `<span style="color:${keyColor}">${esc(issue.key)}</span>`;
     const copyKeyBtn = `<button class="copy-btn" title="Copy issue key" onclick="copyIssueKey('${esc(issue.key)}', this)">⧉</button>`;
-    const copyLinkBtn = `<button class="copy-btn" title="Copy Mattermost link" onclick="copyIssueLink('${esc(issue.key)}', this)">🔗</button>`;
+    const copyLinkBtn = `<button class="copy-btn" title="Copy Mattermost link" data-summary="${esc(issue.summary)}" onclick="copyIssueLink('${esc(issue.key)}', this)">🔗</button>`;
     const isTracking = ttData?.active?.key === issue.key;
     const tracker = ttData?.trackers?.[issue.key];
     let trackedTime = '';
