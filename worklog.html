@@ -485,9 +485,9 @@ function monthStats(m) {
   const realHours = Math.max(0, faktureret - threshold);
   const realBonus = realHours * c.bonustimeloen;
 
-  // working-time balance: whole month once over, up to yesterday while running
+  // working-time balance: whole month once over, through today (worked so far) while running
   const workBal = ph === 'past' ? workBalance(Y, m, holidaySet, c.dagsnormtimer, null)
-    : ph === 'current' ? workBalance(Y, m, holidaySet, c.dagsnormtimer, todayMidnight)
+    : ph === 'current' ? workBalance(Y, m, holidaySet, c.dagsnormtimer, new Date(curY, curM - 1, today.getDate() + 1))
     : null;
 
   return {m, norm, threshold, sealed, workedH, vac, sick, other,
@@ -556,13 +556,12 @@ function render() {
       gapKnown ? `arbejdet ${hrs(cur.workedH)} t · ferie ${hrs(cur.vac)} t` : `under ${cur.threshold} t bonusgrænse endnu`);
     // working time vs the month's norm (37 t/uge), not billing — see dayWork
     const dn = c.dagsnormtimer;
-    const normToDate = workdaysElapsed(Y, cur.m, holidaySet) * dn
-      - (holidaySet.has(ymd(Y, cur.m, today.getDate())) || [0, 6].includes(today.getDay()) ? 0 : dn);
+    const normToDate = workdaysElapsed(Y, cur.m, holidaySet) * dn;   // incl. today, as cur.workBal
     const wk = weekBalance(holidaySet, dn);
     html += card('hero', 'Denne uge', wk.owed ? `<span class="${wk.bal >= 0 ? 'pos' : 'neg'}">${wk.bal >= 0 ? '+' : ''}${hrs(wk.bal)} t</span>` : '<span class="muted">–</span>',
       wk.owed ? `uge ${isoWeek(today)} · ${hrs(wk.owed + wk.bal)} af ${hrs(wk.owed)} t til og med i går` : `uge ${isoWeek(today)} · ugen er lige begyndt`);
     html += card('hero', 'Arbejdstid ift. norm', `<span class="${cur.workBal >= 0 ? 'pos' : 'neg'}">${cur.workBal >= 0 ? '+' : ''}${hrs(cur.workBal)} t</span>`,
-      `${hrs(normToDate + cur.workBal)} af ${hrs(normToDate)} t til og med i går · måned ${hrs(workdaysInMonth(Y, cur.m, holidaySet) * dn)} t`);
+      `${hrs(normToDate + cur.workBal)} af ${hrs(normToDate)} t til og med i dag · måned ${hrs(workdaysInMonth(Y, cur.m, holidaySet) * dn)} t`);
     html += `</div></div>`;
   }
 
