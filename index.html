@@ -357,14 +357,7 @@
       0%, 100% { opacity: 0.45; text-shadow: none; }
       50% { opacity: 1; text-shadow: 0 0 6px var(--red), 0 0 14px var(--red); }
     }
-    #not-tracking {
-      display: none;
-      color: var(--red);
-      font-size: 14px;
-      letter-spacing: 1px;
-      flex-shrink: 0;
-      animation: breathe-red 2.8s ease-in-out infinite;
-    }
+    #not-tracking { display: none; color: var(--dim); font-size: 16px; letter-spacing: 1px; margin-bottom: 3px; }
 
     #tracking-box {
       display: flex;
@@ -765,7 +758,6 @@
       <a href="links.html">🔗 LINKS</a>
       <a href="sounds.html">🔊 SOUNDS</a>
     </nav>
-    <div id="not-tracking">● NOT TRACKING</div>
     <select id="theme-select" title="Theme" onchange="setTheme(this.value)">
       <option value="amber">◆ AMBER CRT</option>
       <option value="c64">◆ COMMODORE 64</option>
@@ -834,12 +826,14 @@
         </div>
         <div id="tracking-box">
           <div class="tracking-header">TRACKING</div>
+          <div id="not-tracking"></div>
           <div class="tracking-issue" id="tracking-issue">–</div>
           <div class="tracking-elapsed" id="tracking-elapsed">0:00</div>
           <div id="tracking-summary" style="font-size: 16px; margin: 6px 0; flex: 1; overflow-y: auto;"></div>
           <div class="tracking-buttons">
             <button class="tracking-btn tracking-idle" onclick="trackIdle()">Idle</button>
-            <button class="tracking-btn tracking-stop" onclick="trackStop()">Stop</button>
+            <button class="tracking-btn" onclick="trackAction('pause')">Pause</button>
+            <button class="tracking-btn tracking-stop" onclick="trackAction('end_day')">End day</button>
           </div>
         </div>
       </div>
@@ -919,36 +913,22 @@
     }
   }
 
-  async function trackIdle() {
-    try {
-      const resp = await fetch(`/api/track`, {
-        method: 'POST',
-        headers: {'Content-Type': 'application/json'},
-        body: JSON.stringify({action: 'idle'})
-      });
-      if (!resp.ok) throw new Error(await resp.text());
-      ttData = await resp.json();
-      rerenderKanban();
-      renderTrackingBox();
-      startTrackingTick();
-    } catch (e) {
-      console.error('track idle:', e);
-    }
-  }
+  const trackIdle = () => trackAction('idle');
+  const trackStop = () => trackAction('stop');
 
-  async function trackStop() {
+  async function trackAction(action) {
     try {
       const resp = await fetch(`/api/track`, {
         method: 'POST',
         headers: {'Content-Type': 'application/json'},
-        body: JSON.stringify({action: 'stop'})
+        body: JSON.stringify({action})
       });
       if (!resp.ok) throw new Error(await resp.text());
       ttData = await resp.json();
       rerenderKanban();
       renderTrackingBox();
     } catch (e) {
-      console.error('track stop:', e);
+      console.error(`track ${action}:`, e);
     }
   }
 
@@ -986,8 +966,7 @@
     return Math.floor((Date.now() - started.getTime()) / 1000);
   }
 
-  function todayStr() {
-    const d = new Date();
+  function todayStr(d = new Date()) {
     return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
   }
 
@@ -1075,8 +1054,8 @@
       const elapsed = computeElapsed();
       elapsedEl.textContent = formatElapsed(elapsed);
     } else {
-      issueEl.textContent = '–';
-      elapsedEl.textContent = '0:00';
+      issueEl.textContent = '';  // #not-tracking says why
+      elapsedEl.textContent = '';
     }
 
     const issuesHtml = Object.entries(trackers)
@@ -1106,21 +1085,30 @@
     }
   }
 
+  // The day runs from its first entry to End day. Inside it, nothing running
+  // and no Pause means forgotten tracking; before or after it is nobody's business.
   function updateNotTrackingBadge() {
     const el = document.getElementById('not-tracking');
     if (!el) return;
-    if (ttData?.active) { el.style.display = 'none'; return; }
-    let lastEnded = null;
-    for (const tracker of Object.values(ttData?.trackers ?? {})) {
-      for (const seg of tracker.segments ?? []) {
-        if (seg.ended_at) {
-          const t = new Date(seg.ended_at).getTime();
-          if (!lastEnded || t > lastEnded) lastEnded = t;
-        }
-      }
+    const today = todayStr();
+    const end = ttData?.days?.[today]?.end;
+    const started = Object.values(ttData?.trackers ?? {})
+      .some(t => (t.segments ?? []).some(s => todayStr(new Date(s.started_at)) === today));
+    const fmtHm = iso => new Date(iso).toLocaleTimeString('da-DK', {hour: '2-digit', minute: '2-digit'});
+    let text = '', cls = '';
+    if (ttData?.active) {
+      // tracking: nothing to say
+    } else if (ttData?.pause) {
+      const secs = Math.floor((Date.now() - new Date(ttData.pause.started_at)) / 1000);
+      text = `⏸ PAUSED ${formatElapsed(secs)}`; cls = 'breathe-yellow';
+    } else if (end) {
+      text = `DAY ENDED ${fmtHm(end)}`;
+    } else if (started) {
+      text = '● NOT TRACKING'; cls = 'breathe-red';
     }
-    const idle = lastEnded ? Date.now() - lastEnded : Infinity;
-    el.style.display = idle > 5 * 60 * 1000 ? '' : 'none';
+    el.textContent = text;
+    el.className = cls;
+    el.style.display = text ? 'block' : 'none';
   }
 
   function startTrackingTick() {

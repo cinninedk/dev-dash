@@ -200,6 +200,29 @@ def _trim_idle_upto(state: dict, boundary: datetime.datetime) -> None:
         del state["trackers"][IDLE_KEY]
 
 
+def _resume(state: dict) -> None:
+    """Back to work: close an open pause into days[date].pauses. Starting
+    again on a day already ended turns the time off into a pause and reopens
+    the day. A pause left open past midnight was really the day's end.
+
+    Pauses live in days{}, not trackers{}, so no worked-time total sees them.
+    """
+    now = datetime.datetime.now().astimezone()
+    now_iso, today = now.isoformat(timespec="seconds"), now.strftime("%Y-%m-%d")
+    days = state.setdefault("days", {})
+    pause = state.pop("pause", None)
+    if pause:
+        pday = _parse_dt(pause["started_at"]).strftime("%Y-%m-%d")
+        if pday == today:
+            days.setdefault(today, {}).setdefault("pauses", []).append(
+                {"started_at": pause["started_at"], "ended_at": now_iso})
+        else:
+            days.setdefault(pday, {})["end"] = pause["started_at"]
+    day = days.get(today)
+    if day and day.get("end"):
+        day.setdefault("pauses", []).append({"started_at": day.pop("end"), "ended_at": now_iso})
+
+
 def _start_tracker(state: dict, key: str, summary: str) -> None:
     """Open a new segment for key. Caller must call _close_active first."""
     now_str = _now_iso()
@@ -1614,6 +1637,7 @@ class Handler(http.server.SimpleHTTPRequestHandler):
                 self._respond(400, "Missing key")
                 return
             _close_active(state)
+            _resume(state)
             reopened = False
             tracker = state.get("trackers", {}).get(key)
             if tracker:
@@ -1633,9 +1657,25 @@ class Handler(http.server.SimpleHTTPRequestHandler):
                 _start_tracker(state, key, summary)
         elif action == "idle":
             _close_active(state)
+            _resume(state)
             _start_tracker(state, IDLE_KEY, "Idle")
         elif action in ("stop", "stopall"):
             _close_active(state)
+        elif action == "pause":
+            if not state.get("pause"):
+                _close_active(state)
+                _resume(state)
+                state["pause"] = {"started_at": _now_iso()}
+        elif action == "end_day":
+            today = datetime.date.today().isoformat()
+            pause = state.get("pause")
+            if pause and _parse_dt(pause["started_at"]).strftime("%Y-%m-%d") == today:
+                end = state.pop("pause")["started_at"]  # paused, then went home
+            else:
+                _close_active(state)
+                _resume(state)
+                end = _now_iso()
+            state.setdefault("days", {}).setdefault(today, {})["end"] = end
         elif action == "edit_active":
             code, err = self._do_edit_active(state, req)
             if err:

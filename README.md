@@ -155,7 +155,7 @@ Every page has a theme switcher (amber, C64, green, ice, paper, corkboard).
 ├─ JIRA KANBAN ─────────────────────────────────────────┬─ TRACKING ──┤
 │  OPEN │ IMPLEMENT │ QA │ BV │ RESOLVED                │  issue       │
 │  — or, with nothing in Implement: —                   │  elapsed     │
-│  NEXT TASK (2×wide) │ OPEN │ QA │ BV │ RESOLVED       │  Idle  Stop  │
+│  NEXT TASK (2×wide) │ OPEN │ QA │ BV │ RESOLVED       │Idle Pause End│
 ├─ FOR MY REVIEW ───────────────────────────────────────┴──────────────┤
 │  TECH QA — NEEDS MY REVIEW  ·  PRs — NEEDS MY REVIEW                 │
 ├─ status bar: session · last poll · data age · sprint · sound · POLL ─┤
@@ -163,6 +163,13 @@ Every page has a theme switcher (amber, C64, green, ice, paper, corkboard).
 
 Empty kanban columns are hidden and the rest expand to fill the width; each
 column scrolls on its own.
+
+The workday runs from its first tracked entry to **End day**. Inside it,
+nothing running means forgotten tracking: the TRACKING box breathes red
+NOT TRACKING, and the timesheet lists the stretch as a gap. **Pause** (doctor,
+errands) breathes yellow instead and never counts as worked time or a gap.
+Starting again after End day reopens the day; the time off becomes a pause.
+Pauses and day ends live in `timetrack.json` under `days`, outside `trackers`.
 
 ### Kanban columns
 
