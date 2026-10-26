@@ -22,14 +22,19 @@ vpn_ok() {
     curl -s -o /dev/null --connect-timeout 2 --max-time 3 "$STASH_URL"
 }
 
-# Derive Bitbucket username from own PRs (may differ from USERNAME in config)
-BB_USERNAME=$(curl -s "${CURL_OPTS[@]}" -H "Authorization: Bearer $PASSWORD" \
-    "$STASH_URL/rest/api/1.0/dashboard/pull-requests?state=OPEN&role=AUTHOR&limit=1" \
-    | jq -r '.values[0].author.user.name // ""')
-
-# Jira username, for "is this me" checks (TQA assignee, activity by others)
-JIRA_ME=$(curl -s "${CURL_OPTS[@]}" -H "Authorization: Bearer $JIRA_PASSWORD" \
-    "$JIRA_URL/rest/api/2/myself" | jq -r '.name // ""')
+# Usernames for "is this me" checks: Bitbucket's from own PRs (may differ from
+# USERNAME in config), Jira's for TQA assignee and activity by others. Looked
+# up again on each poll until they resolve: the poller starts at login, often
+# before the VPN is up, and an empty name filters out nobody.
+BB_USERNAME=""
+JIRA_ME=""
+resolve_me() {
+    [ -n "$BB_USERNAME" ] || BB_USERNAME=$(curl -s "${CURL_OPTS[@]}" -H "Authorization: Bearer $PASSWORD" \
+        "$STASH_URL/rest/api/1.0/dashboard/pull-requests?state=OPEN&role=AUTHOR&limit=1" \
+        | jq -r '.values[0].author.user.name // ""' 2>/dev/null)
+    [ -n "$JIRA_ME" ] || JIRA_ME=$(curl -s "${CURL_OPTS[@]}" -H "Authorization: Bearer $JIRA_PASSWORD" \
+        "$JIRA_URL/rest/api/2/myself" | jq -r '.name // ""' 2>/dev/null)
+}
 
 OUT_DIR="$ROOT/data"
 mkdir -p "$OUT_DIR"
@@ -401,6 +406,7 @@ process_prs_to_json() {
 # ── Fetchers ── one per source, each writing its own data/*.json
 
 poll_bitbucket() {
+    resolve_me
     # Load build/sonar cache (read once; available to process_prs_to_json subshells)
     # An empty or broken file must read as {} — jq prints nothing for empty
     # input, and an empty $CACHE used to break every later merge, for good.
@@ -465,6 +471,7 @@ def activity($me):
 '
 
 poll_jira() {
+    resolve_me
     # ── Jira ──
     log "Fetching Jira issues..."
 
