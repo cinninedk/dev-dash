@@ -194,13 +194,6 @@
     table.daybreak th { color: var(--dim); font-size: 12px; letter-spacing: 1px; text-transform: uppercase; text-align: left; padding: 2px 12px; border-bottom: 1px solid var(--row-border-soft); }
     table.daybreak td { padding: 3px 12px; border-bottom: 1px solid var(--row-border-soft); white-space: nowrap; }
     table.daybreak td.r, table.daybreak th.r { text-align: right; }
-    table.daybreak td.brk { color: var(--dim); white-space: normal; }
-    table.daybreak td.brk div { line-height: 1.5; }
-
-    .lt-vacation { color: var(--green); }
-    .lt-sick { color: var(--red); }
-    .lt-child_sick { color: var(--red); }
-    .lt-other { color: var(--yellow); }
     .note { color: var(--dim); font-size: 14px; margin-top: 6px; max-width: 760px; line-height: 1.4; }
   </style>
   <script src="theme.js"></script>
@@ -236,7 +229,6 @@ let selectedYear = null;
 let yearCfg = null;
 let holidaySet = new Set();      // selected year, for norm calc
 let worked = {};                 // 'YYYY-MM-DD' -> tracked hours (quarter-rounded)
-let workedDetail = {};           // 'YYYY-MM-DD' -> { trackerKey: rounded hours }
 let leaveByDate = {};            // 'YYYY-MM-DD' -> {vacation,sick,other}
 let expandedMonth = null;        // month (1-12) whose day breakdown is open
 
@@ -337,13 +329,10 @@ async function load() {
     if (secs > 0) { const k = (act.key || '__ACTIVE__') + '|' + d; perKeyDay[k] = (perKeyDay[k] || 0) + secs; }
   }
   worked = {};
-  workedDetail = {};
   for (const [k, secs] of Object.entries(perKeyDay)) {
     const d = k.slice(-10);
-    const key = k.slice(0, -11);            // strip the trailing '|YYYY-MM-DD'
     const h = roundQuarter(secs) / 3600;
     worked[d] = (worked[d] || 0) + h;
-    (workedDetail[d] || (workedDetail[d] = {}))[key] = h;
   }
 
   // year picker
@@ -600,7 +589,7 @@ function render() {
     const tag = s.sealed ? '<span class="tag sealed">seed</span>'
               : s.phase === 'future' ? '<span class="tag">norm</span>' : '';
     const open = expandedMonth === s.m;
-    html += `<tr class="${s.phase} clickable" onclick="toggleMonth(${s.m})">
+    html += `<tr id="month-${s.m}" class="${s.phase} clickable" onclick="toggleMonth(${s.m})">
       <td><span class="caret">${open ? '▾' : '▸'}</span>${MONTHS[s.m - 1]} ${tag}</td>
       <td>${hrs(s.norm)}</td>
       <td class="${normLeft > 0 ? '' : 'muted'}">${normLeft > 0 ? hrs(normLeft) : '–'}</td>
@@ -637,10 +626,13 @@ function card(cls, label, value, sub) {
     <div class="value">${value}</div><div class="sub">${sub || ''}</div></div>`;
 }
 
-function toggleMonth(m) { expandedMonth = expandedMonth === m ? null : m; render(); }
+function toggleMonth(m) {
+  expandedMonth = expandedMonth === m ? null : m;
+  render();
+  if (expandedMonth) el('month-' + m).scrollIntoView({block: 'start', behavior: 'smooth'});
+}
 
 const DOW = ['Søn', 'Man', 'Tir', 'Ons', 'Tor', 'Fre', 'Lør'];
-const keyLabel = k => k === '__IDLE__' ? 'idle' : k;
 
 // Per-day breakdown shown when a month row is expanded. Sealed/seed and future
 // months carry no tracked segments, so they just say so.
@@ -666,15 +658,6 @@ function monthDetailRow(s, colspan) {
       if (!h && !lv && !r.owed) continue;      // weekends/holidays with nothing on them
       const isToday = dt >= todayMidnight;     // still running: shown, not in the balance yet
       const wd = dt.getDay();
-      const brkLines = Object.entries(workedDetail[ds] || {})
-        .sort((a, b) => b[1] - a[1])
-        .map(([k, hh]) => `<div>${keyLabel(k)} ${hrs(hh)}</div>`);
-      if (lv) {
-        if (lv.vacation) brkLines.push(`<div class="lt-vacation">ferie ${hrs(lv.vacation)}</div>`);
-        if (lv.sick) brkLines.push(`<div class="lt-sick">syg ${hrs(lv.sick)}</div>`);
-        if (lv.child_sick) brkLines.push(`<div class="lt-child_sick">barn syg ${hrs(lv.child_sick)}</div>`);
-        if (lv.other) brkLines.push(`<div class="lt-other">andet ${hrs(lv.other)}</div>`);
-      }
       const diff = r.diff;
       if (!isToday) running += diff;
       rows += `<tr>
@@ -682,11 +665,10 @@ function monthDetailRow(s, colspan) {
         <td class="r">${h ? hrs(h) + ' t' : '–'}</td>
         <td class="r ${diff >= 0 ? 'pos' : 'neg'}">${(diff >= 0 ? '+' : '') + hrs(diff)}</td>
         <td class="r ${running >= 0 ? 'pos' : 'neg'}">${isToday ? '' : (running >= 0 ? '+' : '') + hrs(running)}</td>
-        <td class="brk">${brkLines.join('')}</td>
       </tr>`;
     }
     inner = rows
-      ? `<table class="daybreak"><thead><tr><th>Dag</th><th class="r">Timer</th><th class="r" title="Arbejdet + fravær minus dagsnorm">Δ dag</th><th class="r" title="Arbejdstid-saldo i måneden, til og med i går">Saldo</th><th>Fordeling</th></tr></thead><tbody>${rows}</tbody></table>`
+      ? `<table class="daybreak"><thead><tr><th>Dag</th><th class="r">Timer</th><th class="r" title="Arbejdet + fravær minus dagsnorm">Δ dag</th><th class="r" title="Arbejdstid-saldo i måneden, til og med i går">Saldo</th></tr></thead><tbody>${rows}</tbody></table>`
       : `<div class="muted">Ingen registreret tid i ${MONTHS[s.m - 1]}.</div>`;
   }
   return `<tr class="detail"><td colspan="${colspan}"><div class="detail-box">${inner}</div></td></tr>`;
