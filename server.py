@@ -1511,7 +1511,38 @@ class Handler(http.server.SimpleHTTPRequestHandler):
         if self.path == "/api/poll-copilot":
             self._handle_poll_copilot()
             return
+        if self.path == "/api/send-to-qa":
+            self._handle_send_to_qa()
+            return
         self._respond(404, "Not found")
+
+    def _handle_send_to_qa(self):
+        """Move an issue to Quality Assurance and unassign it, so QA can pick it up."""
+        length = int(self.headers.get("Content-Length", 0))
+        try:
+            key = json.loads(self.rfile.read(length) if length else b"{}").get("key", "")
+        except Exception:
+            self._respond(400, "Invalid JSON")
+            return
+        if not JIRA_KEY_RE.match(key):
+            self._respond(400, "Invalid issue key")
+            return
+        try:
+            transitions = _jira_request("GET", f"/rest/api/2/issue/{key}/transitions").get("transitions", [])
+            t = next((t for t in transitions if t.get("to", {}).get("name", "").lower() == "quality assurance"), None)
+            if not t:
+                self._respond(409, f"No transition to Quality Assurance from {key}'s current status")
+                return
+            _jira_request("POST", f"/rest/api/2/issue/{key}/transitions", {"transition": {"id": t["id"]}})
+            _jira_request("PUT", f"/rest/api/2/issue/{key}/assignee", {"name": None})
+        except urllib.error.HTTPError as e:
+            self._respond(502, f"Jira error: {_http_err_msg(e)}")
+            return
+        except Exception as e:
+            self._respond(502, f"Jira error: {e}")
+            return
+        (DATA_DIR / ".poll-wake").touch()  # let poll.sh pick up the new state now
+        self._respond_json(200, {"ok": True})
 
     def _handle_poll_copilot(self):
         """Run one poll-copilot.sh cycle on demand (manual REFRESH) and report the result."""

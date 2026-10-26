@@ -588,6 +588,19 @@
     .pr-badge.approved { color: var(--bright); }
     .pr-badge.merged { color: var(--green); }
     .pr-badge.draft { color: var(--dim); }
+    /* IMPLEMENT story with every PR merged: one click moves it to QA */
+    .qa-btn { font: inherit; font-size: 13px; padding: 0 6px; letter-spacing: 0.5px; white-space: nowrap; cursor: pointer;
+              background: transparent; border: 1px solid var(--green); color: var(--green); animation: breathe-flash 2s ease-in-out infinite; }
+    .qa-btn:hover { background: var(--green); color: var(--bg); animation: none; }
+    .qa-btn:disabled { cursor: wait; animation: none; opacity: 0.6; }
+    @keyframes breathe-flash {
+      0%, 100% { box-shadow: 0 0 2px transparent; background: transparent; color: var(--green); }
+      50%      { box-shadow: 0 0 10px var(--green); background: var(--green); color: var(--bg); }
+    }
+    .jira-card.card-leaving  { animation: card-out 0.7s ease-in forwards; pointer-events: none; }
+    .jira-card.card-arriving { animation: card-in 0.7s ease-out; }
+    @keyframes card-out { to { opacity: 0; transform: translateX(24px); } }
+    @keyframes card-in  { from { opacity: 0; transform: translateX(-24px); } }
     /* unseen activity by others on a card; click to mark seen */
     .act-badge { font-size: 13px; padding: 0 5px; border: 1px solid var(--bright); color: var(--bright); background: var(--sel-bg);
                  letter-spacing: 0.5px; white-space: nowrap; cursor: pointer; animation: blink 2.4s ease-in-out infinite; }
@@ -937,7 +950,7 @@
     const issues = jiraData.issues ?? [];
     const cols = {
       open:      issues.filter(i => i.status === 'OPEN' || i.status === 'REOPENED'),
-      implement: issues.filter(i => i.status === 'IMPLEMENT'),
+      implement: implementIssues(issues),
       bv:        issues.filter(i => i.status === 'BUSINESS VALIDATION'),
       resolved:  issues.filter(i => i.status === 'RESOLVED'),
     };
@@ -1445,10 +1458,44 @@
     const [cls, label] =
         review   ? ['open', review > 1 ? `${review} PRS IN REVIEW` : 'PR IN REVIEW']
       : approved ? ['approved', approved > 1 ? 'ALL APPROVED' : 'APPROVED']
-      : merged && !draft ? ['merged', 'ALL MERGED']
+      : allMerged(prs) ? ['merged', 'ALL MERGED']
       : [];
     const draftBadge = draft ? `<span class="pr-badge draft" title="${title}">${draft > 1 ? `${draft} DRAFTS` : 'DRAFT'}</span>` : '';
     return (label ? `<span class="pr-badge ${cls}" title="${title}">${label}</span>` : '') + draftBadge;
+  }
+
+  const allMerged = prs => { const {review = 0, approved = 0, draft = 0, merged = 0} = prs || {}; return merged && !review && !approved && !draft; };
+
+  // ── Send to QA ──
+  // An IMPLEMENT issue whose PRs are all merged gets a SEND TO QA button: Jira
+  // moves it to Quality Assurance and unassigns it (/api/send-to-qa). For the
+  // move, a leaving copy (qaMove.ghost) holds its place in IMPLEMENT and fades
+  // out while the real card fades in under QA.
+  let qaMove = null;
+  const implementIssues = issues => issues.flatMap(i =>
+    i.key === qaMove?.key ? [qaMove.ghost] : i.status === 'IMPLEMENT' ? [i] : []);
+
+  async function sendToQa(key, btn) {
+    btn.disabled = true;
+    btn.textContent = '…';
+    try {
+      const resp = await fetch('/api/send-to-qa', {
+        method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({key}),
+      });
+      if (!resp.ok) throw new Error(await resp.text());
+    } catch (e) {
+      console.error('send to QA:', e);
+      btn.disabled = false;
+      btn.textContent = '✗ SEND TO QA';
+      btn.title = String(e.message || e);
+      return;
+    }
+    const issue = jiraData?.issues?.find(i => i.key === key);
+    if (!issue) return;
+    qaMove = {key, ghost: {...issue, _leaving: true}};
+    Object.assign(issue, {status: 'QUALITY ASSURANCE', unassigned: true, assignee: null});
+    renderAll(bbData, jiraData);
+    setTimeout(() => { qaMove = null; if (bbData && jiraData) renderAll(bbData, jiraData); }, 700);
   }
 
   // ── Unseen activity on cards ──
@@ -1511,8 +1558,9 @@
     }
     // PR / blocker badges only matter until the work leaves IMPLEMENT
     const pastImplement = ['QUALITY ASSURANCE','BUSINESS VALIDATION','RESOLVED'].includes(issue.status);
+    const moveClass = issue._leaving ? ' card-leaving' : qaMove?.key === issue.key ? ' card-arriving' : '';
     return `
-      <div class="jira-card${extraClass ? ' ' + extraClass : ''}" data-issue-key="${esc(issue.key)}">
+      <div class="jira-card${extraClass ? ' ' + extraClass : ''}${moveClass}" data-issue-key="${esc(issue.key)}">
         <div class="card-top">
           <div class="card-key">${keyHtml}</div>
           ${copyKeyBtn}
@@ -1527,6 +1575,7 @@
           ${issue.in_current_sprint === false && ['OPEN','REOPENED','IMPLEMENT'].includes(issue.status) ? '<span class="no-sprint-badge">NOT IN SPRINT!</span>' : ''}
           ${activityBadges(issue)}
           ${pastImplement ? '' : prBadge(issue.prs)}
+          ${issue.status === 'IMPLEMENT' && allMerged(issue.prs) ? `<button class="qa-btn" title="Move to Quality Assurance and unassign" onclick="sendToQa('${esc(issue.key)}', this)">SEND TO QA</button>` : ''}
           ${issue.status === 'QUALITY ASSURANCE' ? (issue.assignee
             ? `<span class="parent-ref-badge" title="Assignee: ${esc(issue.assignee)}">${esc(issue.assignee.split(' ')[0])}</span>`
             : '<span class="parent-ref-badge">Waiting</span>') : ''}
@@ -1611,7 +1660,7 @@
     // Kanban columns
     const cols = {
       open:      issues.filter(i => i.status === 'OPEN' || i.status === 'REOPENED'),
-      implement: issues.filter(i => i.status === 'IMPLEMENT'),
+      implement: implementIssues(issues),
       bv:        issues.filter(i => i.status === 'BUSINESS VALIDATION'),
       resolved:  issues.filter(i => i.status === 'RESOLVED'),
     };
