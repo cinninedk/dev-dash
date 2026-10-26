@@ -169,32 +169,48 @@ def _close_active(state: dict) -> None:
     state["active"] = None
 
 
-def _trim_idle_upto(state: dict, boundary: datetime.datetime) -> None:
-    """Truncate/remove Idle segments at or after `boundary`.
+def _cut_idle(state: dict, start: datetime.datetime, end=None) -> None:
+    """Cut [start, end) out of Idle time (end=None: everything from start on).
 
-    Used when a task's start time is set earlier than it was originally
-    recorded and now overlaps time already logged as Idle, so that span
-    isn't double-counted as both Idle and tracked work.
+    Used when a task's time is added or moved onto time already logged as
+    Idle, so no span is ever both Idle and tracked work. Idle segments are
+    trimmed, dropped, or split in two around the task; a running Idle that
+    started before `end` is moved to start at `end`.
     """
+    iso = lambda dt: dt.isoformat(timespec="seconds")
+    active = state.get("active")
+    if end is not None and active and active["key"] == IDLE_KEY:
+        try:
+            a = _parse_dt(active["started_at"])
+        except ValueError:
+            a = None
+        if a is not None and a < end:
+            if a < start:  # the Idle before the task becomes a closed segment
+                state["trackers"].setdefault(IDLE_KEY, {"summary": "Idle", "segments": []})["segments"].append(
+                    {"id": _new_id(), "started_at": iso(a), "ended_at": iso(start),
+                     "seconds": int((start - a).total_seconds())})
+            active["started_at"] = iso(end)
     idle = state.get("trackers", {}).get(IDLE_KEY)
     if not idle:
         return
     kept = []
     for seg in idle.get("segments", []):
         try:
-            seg_start = _parse_dt(seg["started_at"])
-            seg_end = _parse_dt(seg["ended_at"])
+            s, e = _parse_dt(seg["started_at"]), _parse_dt(seg["ended_at"])
         except Exception:
             kept.append(seg)
             continue
-        if seg_start >= boundary:
-            continue  # entirely reclaimed by the task
-        if seg_end > boundary:
-            seg["ended_at"] = boundary.isoformat(timespec="seconds")
-            seg["seconds"] = int((boundary - seg_start).total_seconds())
-        kept.append(seg)
-    if kept:
-        idle["segments"] = kept
+        if e <= start or (end is not None and s >= end):
+            kept.append(seg)  # no overlap
+            continue
+        head = s < start
+        if head:
+            kept.append(dict(seg, ended_at=iso(start), seconds=int((start - s).total_seconds())))
+        if end is not None and e > end:
+            kept.append(dict(seg, id=_new_id() if head else seg["id"],
+                             started_at=iso(end), seconds=int((e - end).total_seconds())))
+    if kept or (active or {}).get("key") == IDLE_KEY:
+        idle["segments"] = sorted(kept, key=lambda s: s.get("started_at", ""))
         _recompute_total(idle)
     else:
         del state["trackers"][IDLE_KEY]
@@ -1747,7 +1763,7 @@ class Handler(http.server.SimpleHTTPRequestHandler):
             return 400, "Start time is in the future"
         active["started_at"] = started.isoformat(timespec="seconds")
         if active["key"] != IDLE_KEY:
-            _trim_idle_upto(state, started)
+            _cut_idle(state, started)
         return 200, None
 
     def _do_add_segment(self, state, req):
@@ -1775,6 +1791,8 @@ class Handler(http.server.SimpleHTTPRequestHandler):
         })
         tracker["segments"].sort(key=lambda s: s.get("started_at", ""))
         _recompute_total(tracker)
+        if key != IDLE_KEY:
+            _cut_idle(state, started, ended)
         return None
 
     def _do_edit_segment(self, state, req):
@@ -1800,6 +1818,8 @@ class Handler(http.server.SimpleHTTPRequestHandler):
         seg["seconds"] = int((ended - started).total_seconds())
         tracker["segments"].sort(key=lambda s: s.get("started_at", ""))
         _recompute_total(tracker)
+        if key != IDLE_KEY:
+            _cut_idle(state, started, ended)
         return 200, None
 
     def _do_delete_segment(self, state, req):
