@@ -216,6 +216,30 @@ def _cut_idle(state: dict, start: datetime.datetime, end=None) -> None:
         del state["trackers"][IDLE_KEY]
 
 
+def _idle_give_way(state: dict, start: datetime.datetime, end: datetime.datetime) -> None:
+    """Idle was put on [start, end): cut every task span it overlaps back out
+    of Idle, the running task included. Tasks always win over Idle."""
+    spans = []
+    for key, tracker in state.get("trackers", {}).items():
+        if key == IDLE_KEY:
+            continue
+        for seg in tracker.get("segments", []):
+            try:
+                s, e = _parse_dt(seg["started_at"]), _parse_dt(seg["ended_at"])
+            except Exception:
+                continue
+            if s < end and e > start:
+                spans.append((s, e))
+    active = state.get("active")
+    if active and active["key"] != IDLE_KEY:
+        try:
+            spans.append((_parse_dt(active["started_at"]), datetime.datetime.now().astimezone()))
+        except ValueError:
+            pass
+    for s, e in spans:
+        _cut_idle(state, s, e)
+
+
 def _resume(state: dict) -> None:
     """Back to work: close an open pause into days[date].pauses. Starting
     again on a day already ended turns the time off into a pause and reopens
@@ -1764,6 +1788,8 @@ class Handler(http.server.SimpleHTTPRequestHandler):
         active["started_at"] = started.isoformat(timespec="seconds")
         if active["key"] != IDLE_KEY:
             _cut_idle(state, started)
+        else:
+            _idle_give_way(state, started, datetime.datetime.now().astimezone())
         return 200, None
 
     def _do_add_segment(self, state, req):
@@ -1793,6 +1819,8 @@ class Handler(http.server.SimpleHTTPRequestHandler):
         _recompute_total(tracker)
         if key != IDLE_KEY:
             _cut_idle(state, started, ended)
+        else:
+            _idle_give_way(state, started, ended)
         return None
 
     def _do_edit_segment(self, state, req):
@@ -1820,6 +1848,8 @@ class Handler(http.server.SimpleHTTPRequestHandler):
         _recompute_total(tracker)
         if key != IDLE_KEY:
             _cut_idle(state, started, ended)
+        else:
+            _idle_give_way(state, started, ended)
         return 200, None
 
     def _do_delete_segment(self, state, req):
