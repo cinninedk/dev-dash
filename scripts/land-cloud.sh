@@ -19,11 +19,25 @@
 
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 cd "$ROOT" || exit 1
-export GIT_TERMINAL_PROMPT=0
-export GIT_SSH_COMMAND="ssh -o BatchMode=yes -o ConnectTimeout=10 -o ServerAliveInterval=10 -o ServerAliveCountMax=2"
 log() { echo "[$(date '+%H:%M:%S')] cloud: $*"; }
 
-[ "$(git symbolic-ref --short HEAD 2>/dev/null)" = master ] || { log "not on master, skipping"; exit 0; }
+# Under launchd, macOS privacy protection blocks ~/.ssh (key, config,
+# known_hosts) and ~/Documents (where ~/.gitconfig may point). So ssh gets a
+# deploy key from secrets/ and GitHub's published host key, and git skips a
+# global config it can't read — the repo's own config must then hold
+# user.name/user.email.
+KEY="$ROOT/secrets/github-deploy-key"
+[ -r "$KEY" ] || { log "no secrets/github-deploy-key, skipping (README → Cloud sessions)"; exit 0; }
+GITHUB_HOSTKEY="github.com ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIOMqqnkVzrm0SdG6UOoqKLsabgH5C9okWi0dh2l9GKJl"
+export GIT_TERMINAL_PROMPT=0
+export GIT_SSH_COMMAND="ssh -F /dev/null -i '$KEY' -o IdentitiesOnly=yes -o HostName=github.com -o HostKeyAlias=github.com -o User=git \
+    -o UserKnownHostsFile=/dev/null -o GlobalKnownHostsFile=/dev/null -o 'KnownHostsCommand=/bin/echo $GITHUB_HOSTKEY' \
+    -o BatchMode=yes -o ConnectTimeout=10 -o ServerAliveInterval=10 -o ServerAliveCountMax=2"
+git config --global --list >/dev/null 2>&1 || export GIT_CONFIG_GLOBAL=/dev/null
+[ -n "$(git config user.email)" ] || { log "no git user.email readable, skipping (git config user.email … in the repo)"; exit 0; }
+
+head=$(git symbolic-ref --short HEAD 2>&1)
+[ "$head" = master ] || { log "not on master ($head), skipping"; exit 0; }
 [ -z "$(git status --porcelain --untracked-files=no)" ] || { log "uncommitted changes, skipping"; exit 0; }
 git fetch -q --prune origin || { log "fetch failed"; exit 0; }
 

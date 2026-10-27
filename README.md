@@ -125,6 +125,17 @@ GitHub. Nothing needs a manual restart: `server.py` re-execs on change, the
 dashboard tab reloads when a page file changes, and `poll.sh` re-execs when
 it changed itself. Watch it with `grep cloud: /tmp/dashboard-poll.log`.
 
+macOS doesn't let a launchd agent read `~/.ssh`, so the script uses its own
+deploy key, and the repo's git config needs your name and email (a
+`~/.gitconfig` that links into `~/Documents` is unreadable too). One-time setup:
+
+```sh
+ssh-keygen -t ed25519 -N "" -C "jiraffe land-cloud.sh" -f secrets/github-deploy-key
+gh repo deploy-key add secrets/github-deploy-key.pub --allow-write --title "jiraffe land-cloud"
+git config user.name "$(git config --global user.name)"
+git config user.email "$(git config --global user.email)"
+```
+
 ### Backup
 
 `scripts/backup.sh` (also run by `poll.sh`) copies the files that can't be
