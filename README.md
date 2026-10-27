@@ -113,6 +113,27 @@ dashboard. Each start rewrites `data-test/` with `scripts/make-test-data.py`
 restart. The `/api/*` endpoints that call Jira, Bitbucket or Sonar still need
 `secrets/`.
 
+### Cloud sessions
+
+Claude Code sessions in the cloud push their work to a `claude/…` branch.
+Every 10 minutes `poll.sh` runs `scripts/land-cloud.sh`, which cherry-picks each
+new commit on those branches onto master with the local git identity as
+author and the Claude attribution lines removed, pushes master and deletes
+the branch. It skips a working copy that isn't on master, has uncommitted
+changes or unpushed commits; a branch that doesn't apply cleanly stays on
+GitHub. Nothing needs a manual restart: `server.py` re-execs on change, the
+dashboard tab reloads when a page file changes, and `poll.sh` re-execs when
+it changed itself. Watch it with `grep cloud: /tmp/dashboard-poll.log`.
+
+### Backup
+
+`scripts/backup.sh` (also run by `poll.sh`) copies the files that can't be
+re-fetched — `timetrack.json`, `work-hours.json`, `jira-worklog.json`,
+`copilot-history.json`, the Toggl exports, `secrets/config` and
+`secrets/Arbejdstimer` — to `iCloud Drive/jiraffe-backup/<date>/` once a day,
+and to a tagged folder before cloud commits are applied. Folders older than
+30 days are removed. Restore by copying a file back.
+
 ---
 
 ## Configuration
@@ -235,6 +256,7 @@ play audio on a page nobody clicked).
 | Bitbucket | 10 s while a PR build or Sonar analysis runs | 15 s after a change, doubling up to 2 min |
 | Jira | — | 1 min after a change, doubling up to 10 min |
 | Jenkins master builds | 20 s while one builds | 5 min |
+| Backup + cloud branches | — | 10 min (not behind the VPN, so it runs first) |
 
 Dashboard activity (`POST /api/wake` touches `data/.poll-wake`) makes all three
 due at once and resets the back-off. If Bitbucket is unreachable the cycle is
@@ -274,6 +296,8 @@ jiraffe/
 │   ├── export-worklog.py  # every worked day -> data/worklog-export.csv
 │   ├── check-norm.mjs     # self-check of worklog.html's norm/leave rules
 │   ├── make-test-data.py  # made-up data-test/ for test mode
+│   ├── land-cloud.sh      # cloud sessions' branches -> master
+│   ├── backup.sh          # precious files -> iCloud Drive
 │   ├── jira-issue.sh      # dump an issue as text
 │   ├── pr-comments.sh     # dump a PR's unresolved comment threads
 │   ├── sprint-worked-on.sh, next-tasks.sh

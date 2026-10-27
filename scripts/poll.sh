@@ -752,12 +752,16 @@ poll_jenkins() {
 #              after a change, doubling each unchanged fetch up to 2 min.
 #   Jira       1 min after a change, doubling up to 10 min.
 #   Jenkins    20 s while a master build runs, otherwise 5 min.
+#   Cloud      every 10 min: backup.sh, then land-cloud.sh (cloud sessions'
+#              branches onto master). Not behind the VPN, so it runs first.
 # "Changed" = the file differs apart from its updated stamp. Dashboard activity
 # (page load, tab focus, clicks — server.py touches data/.poll-wake) makes
 # everything due now and resets the back-off, so the loop checks every second.
 BB_FAST=15;  BB_BUSY=10; BB_MAX=120
 JR_FAST=60;              JR_MAX=600
 JK_IDLE=300; JK_BUSY=20
+CLOUD_INT=600
+SELF="$ROOT/scripts/poll.sh"; SELF_SUM=$(md5 -q "$SELF")
 WAKE_FILE="$OUT_DIR/.poll-wake"
 STATE_FILE="$OUT_DIR/poll-state.json"
 
@@ -791,7 +795,7 @@ if [ -n "$POLL_ONCE" ]; then
 fi
 
 BB_INT=$BB_FAST; JR_INT=$JR_FAST; JK_INT=$JK_IDLE
-BB_DUE=0; JR_DUE=0; JK_DUE=0
+BB_DUE=0; JR_DUE=0; JK_DUE=0; CLOUD_DUE=0
 WAKE_SEEN=$(mtime "$WAKE_FILE")
 
 while true; do
@@ -801,6 +805,16 @@ while true; do
         WAKE_SEEN=$W
         BB_INT=$BB_FAST; JR_INT=$JR_FAST; BB_DUE=0; JR_DUE=0; JK_DUE=0
         log "Dashboard activity — fetching everything now"
+    fi
+
+    if [ "$NOW" -ge "$CLOUD_DUE" ]; then
+        "$ROOT/scripts/backup.sh"
+        "$ROOT/scripts/land-cloud.sh"
+        CLOUD_DUE=$(( $(date +%s) + CLOUD_INT ))
+        if [ "$(md5 -q "$SELF")" != "$SELF_SUM" ]; then
+            log "poll.sh changed — restarting"
+            exec /bin/bash "$SELF"
+        fi
     fi
 
     if [ "$NOW" -ge "$BB_DUE" ] || [ "$NOW" -ge "$JR_DUE" ] || [ "$NOW" -ge "$JK_DUE" ]; then

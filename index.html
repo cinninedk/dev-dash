@@ -1913,6 +1913,7 @@
   const events = new EventSource('/api/data-events');
   events.onmessage = loadData;
   events.addEventListener('schedule', e => { pollState = JSON.parse(e.data); renderPoll(); });
+  events.addEventListener('code', () => location.reload());    // a page file changed (e.g. pulled from GitHub)
   </script>
   <script>
     (function () {

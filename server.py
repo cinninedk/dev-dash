@@ -1414,18 +1414,21 @@ class Handler(http.server.SimpleHTTPRequestHandler):
         dashboard shows is rewritten (by poll.sh, or a timesheet change), so the
         page reloads only when there is something new; and a "schedule" event
         carrying poll.sh's poll-state.json (per-source interval and next fetch)
-        whenever that changes, plus once on connect. A dead tab is noticed at
-        the next write; EventSource reconnects by itself after a server restart."""
+        whenever that changes, plus once on connect; and a "code" event when a
+        page file (*.html/js/css) changes, e.g. pulled by land-cloud.sh, so the
+        page reloads itself. A dead tab is noticed at the next write;
+        EventSource reconnects by itself after a server restart."""
         import time
         files = [DATA_DIR / n for n in ("bitbucket.json", "jira.json", "jenkins.json", "timetrack.json")]
         state = DATA_DIR / "poll-state.json"
         mtime = lambda f: f.stat().st_mtime if f.exists() else 0
         sig = lambda: tuple(mtime(f) for f in files)
+        code_sig = lambda: max((mtime(f) for p in ("*.html", "*.js", "*.css") for f in ROOT.glob(p)), default=0)
         self.send_response(200)
         self.send_header("Content-Type", "text/event-stream")
         self.send_header("Cache-Control", "no-store")
         self.end_headers()
-        seen, seen_state = sig(), None
+        seen, seen_state, seen_code = sig(), None, code_sig()
         try:
             while True:
                 if mtime(state) != seen_state:
@@ -1436,6 +1439,10 @@ class Handler(http.server.SimpleHTTPRequestHandler):
                         self.wfile.flush()
                     except OSError:
                         pass
+                if code_sig() != seen_code:
+                    seen_code = code_sig()
+                    self.wfile.write(b"event: code\ndata: changed\n\n")
+                    self.wfile.flush()
                 now = sig()
                 if now != seen:
                     seen = now
