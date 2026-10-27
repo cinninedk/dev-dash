@@ -5,6 +5,7 @@
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 TEST_PORT=664
 
+/usr/bin/python3 "$ROOT/scripts/make-test-data.py" || exit 1   # fresh made-up data, dated around today
 echo "  starting test server on :$TEST_PORT  (data from data-test/)"
 echo "  Dashboard  →  http://localhost:$TEST_PORT"
 echo "  Timesheet  →  http://localhost:$TEST_PORT/time.html"

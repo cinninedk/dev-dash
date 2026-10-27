@@ -107,8 +107,11 @@ scripts/status.sh   # agent status + last poll log
 
 ### Test mode
 
-`scripts/start-test.sh` serves the tracked fixtures in `data-test/` on port 664,
-next to the real dashboard.
+`scripts/start-test.sh` serves made-up data on port 664, next to the real
+dashboard. Each start rewrites `data-test/` with `scripts/make-test-data.py`
+(invented names, dated around today), so test-mode edits don't survive a
+restart. The `/api/*` endpoints that call Jira, Bitbucket or Sonar still need
+`secrets/`.
 
 ---
 
@@ -270,11 +273,12 @@ jiraffe/
 │   ├── copilot-history.py # leaderboard archive -> data/copilot-history.json
 │   ├── export-worklog.py  # every worked day -> data/worklog-export.csv
 │   ├── check-norm.mjs     # self-check of worklog.html's norm/leave rules
+│   ├── make-test-data.py  # made-up data-test/ for test mode
 │   ├── jira-issue.sh      # dump an issue as text
 │   ├── pr-comments.sh     # dump a PR's unresolved comment threads
 │   ├── sprint-worked-on.sh, next-tasks.sh
 │   └── setup.sh, start.sh, stop.sh, status.sh, start-test.sh
-├── data-test/         # fixtures for test mode
+├── data-test/         # gitignored — written by make-test-data.py
 ├── secrets/           # gitignored
 └── data/              # gitignored — written by the pollers and server.py
 ```

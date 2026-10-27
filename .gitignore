@@ -1,8 +1,9 @@
 # credentials & secrets
 secrets/
 
-# generated data
+# generated data (data-test/ by scripts/make-test-data.py)
 data/
+data-test/
 
 # claude context
 .claude/
