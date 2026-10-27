@@ -45,6 +45,7 @@ git fetch -q --prune origin || { log "fetch failed"; exit 0; }
 if ! git merge-base --is-ancestor origin/master HEAD; then
     git merge -q --ff-only origin/master || { log "master has diverged from GitHub, skipping"; exit 0; }
     log "pulled master → $(git rev-parse --short HEAD)"
+    did=1
 fi
 [ "$(git rev-parse HEAD)" = "$(git rev-parse origin/master)" ] || { log "local commits not pushed yet, skipping"; exit 0; }
 
@@ -88,6 +89,8 @@ for branch in $(git for-each-ref --format='%(refname:short)' refs/remotes/origin
             continue
         fi
         log "landed $name: $(git log --format='%h %s' "$start..HEAD" | paste -sd ';' -)"
+        did=1
     fi
     git push -q origin --delete "$name" && log "deleted $name from GitHub"
 done
+[ -n "$did" ] || log "checked GitHub, nothing new (master $(git rev-parse --short HEAD))"
