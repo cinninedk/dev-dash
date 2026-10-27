@@ -769,7 +769,6 @@
       <a href="copilot.html">🤖 COPILOT <span id="nav-copilot-total">–</span></a>
       <a href="backlog.html">🗒 BACKLOG</a>
       <a href="links.html">🔗 LINKS</a>
-      <a href="sounds.html">🔊 SOUNDS</a>
     </nav>
     <select id="theme-select" title="Theme" onchange="setTheme(this.value)">
       <option value="amber">◆ AMBER CRT</option>
@@ -1913,7 +1912,6 @@
   // the server says when poll.sh (or the timesheet) rewrote a data file
   const events = new EventSource('/api/data-events');
   events.onmessage = loadData;
-  events.addEventListener('soundtest', e => playBuildSound(e.data, 'TEST'));   // from sounds.html
   events.addEventListener('schedule', e => { pollState = JSON.parse(e.data); renderPoll(); });
   </script>
   <script>

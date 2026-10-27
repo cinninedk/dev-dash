@@ -1419,14 +1419,13 @@ class Handler(http.server.SimpleHTTPRequestHandler):
         import time
         files = [DATA_DIR / n for n in ("bitbucket.json", "jira.json", "jenkins.json", "timetrack.json")]
         state = DATA_DIR / "poll-state.json"
-        sound_test = DATA_DIR / ".sound-test"
         mtime = lambda f: f.stat().st_mtime if f.exists() else 0
         sig = lambda: tuple(mtime(f) for f in files)
         self.send_response(200)
         self.send_header("Content-Type", "text/event-stream")
         self.send_header("Cache-Control", "no-store")
         self.end_headers()
-        seen, seen_state, seen_test = sig(), None, mtime(sound_test)
+        seen, seen_state = sig(), None
         try:
             while True:
                 if mtime(state) != seen_state:
@@ -1437,10 +1436,6 @@ class Handler(http.server.SimpleHTTPRequestHandler):
                         self.wfile.flush()
                     except OSError:
                         pass
-                if mtime(sound_test) != seen_test:
-                    seen_test = mtime(sound_test)
-                    self.wfile.write(f"event: soundtest\ndata: {sound_test.read_text().strip()}\n\n".encode())
-                    self.wfile.flush()
                 now = sig()
                 if now != seen:
                     seen = now
@@ -1519,17 +1514,6 @@ class Handler(http.server.SimpleHTTPRequestHandler):
         self.wfile.write(body)
 
     def do_POST(self):
-        if self.path == "/api/sound-test":
-            # sounds.html asks every open dashboard to play a build sound through
-            # its real path (see the "soundtest" event in _handle_data_events)
-            length = int(self.headers.get("Content-Length") or 0)
-            kind = self.rfile.read(min(length, 20)).decode("ascii", "replace").strip()
-            if kind not in SOUND_KINDS:
-                self._respond(400, "unknown sound")
-                return
-            (DATA_DIR / ".sound-test").write_text(kind)
-            self._respond_json(200, {"ok": True})
-            return
         if self.path.startswith("/api/play-sound"):
             self._handle_play_sound()
             return

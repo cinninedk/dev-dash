@@ -136,7 +136,6 @@ poll_build_stale_seconds: 240  # re-fetch Jenkins/Sonar even if the commit is un
 | `worklog.html` | Salary hours: worked + leave vs the norm per month/year |
 | `leave.html` | Vacation, sickness, child's sick days and other leave |
 | `links.html` | Personal quick links (`LINKS`) |
-| `sounds.html` | Temporary test page for the build sounds |
 
 Every page has a theme switcher (amber, C64, green, ice, paper, corkboard).
 

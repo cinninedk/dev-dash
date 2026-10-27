@@ -1,6 +1,5 @@
-// Dashboard sounds (Web Audio oscillators, no files). Shared by index.html and
-// sounds.html. sfx.<name>() plays into `target`: a live AudioContext on the
-// test page (created on a click), or an OfflineAudioContext when renderWav()
+// Dashboard sounds (Web Audio oscillators, no files), used by index.html.
+// sfx.<name>() plays into `target`, an OfflineAudioContext while renderWav()
 // turns a sound into a WAV. Rendering needs no click, so the dashboard renders
 // a sound and hands it to server.py, which plays it on the Mac — browsers
 // won't play anything on a page nobody has clicked.
