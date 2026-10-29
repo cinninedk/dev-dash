@@ -17,6 +17,7 @@ import uuid
 
 ROOT = pathlib.Path(__file__).resolve().parent.parent
 OUT = pathlib.Path(sys.argv[1]) if len(sys.argv) > 1 else ROOT / "data-test"
+OUT.mkdir(parents=True, exist_ok=True)      # a fresh clone has no data-test/ yet
 rnd = random.Random(7)                      # same data on every run (apart from the dates)
 NOW = dt.datetime.now().astimezone().replace(microsecond=0)
 TODAY = NOW.date()
