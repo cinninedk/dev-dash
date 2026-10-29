@@ -1470,9 +1470,26 @@
   // moves it to Quality Assurance and unassigns it (/api/send-to-qa). For the
   // move, a leaving copy (qaMove.ghost) holds its place in IMPLEMENT and fades
   // out while the real card fades in under QA.
+  // data/jira.json keeps the issue in IMPLEMENT until poll.sh fetches Jira
+  // again, and the wake fetches Bitbucket first: that write reloads the page
+  // with the old jira.json, which put the card back. So qaSent keeps a sent
+  // issue in QA until jira.json has it out of IMPLEMENT — or for QA_HOLD_MS at
+  // most, in case Jira really has it there.
   let qaMove = null;
+  const qaSent = new Map();  // key -> when it was sent
+  const QA_HOLD_MS = 2 * 60_000;
   const implementIssues = issues => issues.flatMap(i =>
     i.key === qaMove?.key ? [qaMove.ghost] : i.status === 'IMPLEMENT' ? [i] : []);
+
+  function holdQaSent(jira) {
+    for (const [key, at] of qaSent) {
+      const issue = jira.issues?.find(i => i.key === key);
+      if (issue?.status === 'IMPLEMENT' && Date.now() - at < QA_HOLD_MS)
+        Object.assign(issue, {status: 'QUALITY ASSURANCE', unassigned: true, assignee: null});
+      else
+        qaSent.delete(key);
+    }
+  }
 
   async function sendToQa(key, btn) {
     btn.disabled = true;
@@ -1492,7 +1509,8 @@
     const issue = jiraData?.issues?.find(i => i.key === key);
     if (!issue) return;
     qaMove = {key, ghost: {...issue, _leaving: true}};
-    Object.assign(issue, {status: 'QUALITY ASSURANCE', unassigned: true, assignee: null});
+    qaSent.set(key, Date.now());
+    holdQaSent(jiraData);
     renderAll(bbData, jiraData);
     setTimeout(() => { qaMove = null; if (bbData && jiraData) renderAll(bbData, jiraData); }, 700);
   }
@@ -1766,6 +1784,7 @@
       ]);
       bbData = bb;
       jiraData = jira;
+      holdQaSent(jira);
       checkSounds(bb, jk);
       if (bb.stash_url)   STASH = bb.stash_url;
       if (jira.jira_url)  JIRA  = jira.jira_url;
