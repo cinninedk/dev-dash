@@ -490,6 +490,7 @@ poll_jira() {
         unassigned: (.fields.assignee == null),
         assignee:   (.fields.assignee.displayName // null),
         blocked_by: [(.fields.issuelinks // [])[] | select(.type.inward == "is blocked by" and .inwardIssue != null) | {key: .inwardIssue.key, status: (.inwardIssue.fields.status.name | ascii_upcase)}],
+        open_subtasks: [(.fields.subtasks // [])[] | select(.fields.status.statusCategory.key != "done") | .key],
         activity:   activity($me)
     }]'
 
@@ -513,7 +514,7 @@ poll_jira() {
         --get \
         --data-urlencode "jql=$JQL_MINE" \
         --data-urlencode "maxResults=50" \
-        --data-urlencode "fields=summary,status,issuetype,priority,updated,labels,assignee,issuelinks,parent,comment" \
+        --data-urlencode "fields=summary,status,issuetype,priority,updated,labels,assignee,issuelinks,parent,subtasks,comment" \
         --data-urlencode "expand=changelog" \
         | jq --arg me "$JIRA_ME" "$JQ_PROJ" 2>/dev/null || echo "[]")
 
@@ -523,7 +524,7 @@ poll_jira() {
         --get \
         --data-urlencode "jql=$JQL_IMPL" \
         --data-urlencode "maxResults=50" \
-        --data-urlencode "fields=summary,status,issuetype,priority,updated,labels,assignee,issuelinks,parent,comment" \
+        --data-urlencode "fields=summary,status,issuetype,priority,updated,labels,assignee,issuelinks,parent,subtasks,comment" \
         --data-urlencode "expand=changelog" \
         | jq --arg me "$JIRA_ME" "$JQ_PROJ" 2>/dev/null || echo "[]")
 

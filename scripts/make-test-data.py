@@ -54,7 +54,11 @@ ISSUES = [  # key, summary, status, type
     ("NOVA-23", "Rate-limit the public search endpoint", "BUSINESS VALIDATION", "Story"),
     ("NOVA-19", "Upgrade the JSON parser library", "RESOLVED", "Task"),
     ("ORBIT-110", "Export the report as CSV", "OPEN", "Story"),
+    ("ORBIT-106", "Show the app version in the footer", "IMPLEMENT", "Story"),
+    ("ORBIT-108", "Translate the onboarding screens", "IMPLEMENT", "Story"),
 ]
+MERGED = {"ORBIT-106", "ORBIT-108"}         # every PR merged: SEND TO QA, unless a subtask is open
+OPEN_SUBTASKS = {"ORBIT-108": ["ORBIT-109"]}
 SUMMARY = {k: s for k, s, _, _ in ISSUES}
 
 
@@ -149,8 +153,9 @@ for i, (key, summary, status, kind) in enumerate(ISSUES):
                    "parent_key": None, "teknisk_qa": False, "unassigned": False, "assignee": ME,
                    "in_current_sprint": True,
                    "blocked_by": [{"key": "NOVA-19", "status": "RESOLVED", "mine": True}] if key == "ORBIT-104" else [],
-                   "prs": {"review": 1 if status == "IMPLEMENT" else 0, "approved": 1 if key == "ORBIT-97" else 0,
-                           "draft": 1 if key == "ORBIT-104" else 0, "merged": 1 if status == "RESOLVED" else 0},
+                   "open_subtasks": OPEN_SUBTASKS.get(key, []),
+                   "prs": {"review": 1 if status == "IMPLEMENT" and key not in MERGED else 0, "approved": 1 if key == "ORBIT-97" else 0,
+                           "draft": 1 if key == "ORBIT-104" else 0, "merged": 1 if status == "RESOLVED" or key in MERGED else 0},
                    "activity": activity(i % 3)})
 sprint_start = at(TODAY - dt.timedelta(days=TODAY.weekday() + 7), 9)
 write("jira.json", {

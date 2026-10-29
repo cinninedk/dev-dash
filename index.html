@@ -588,7 +588,7 @@
     .pr-badge.approved { color: var(--bright); }
     .pr-badge.merged { color: var(--green); }
     .pr-badge.draft { color: var(--dim); }
-    /* IMPLEMENT story with every PR merged: one click moves it to QA */
+    /* IMPLEMENT story with every PR merged and no open subtasks: one click moves it to QA */
     .qa-btn { font: inherit; font-size: 13px; padding: 0 6px; letter-spacing: 0.5px; white-space: nowrap; cursor: pointer;
               background: transparent; border: 1px solid var(--green); color: var(--green); animation: breathe-flash 2s ease-in-out infinite; }
     .qa-btn:hover { background: var(--green); color: var(--bg); animation: none; }
@@ -1466,8 +1466,9 @@
   const allMerged = prs => { const {review = 0, approved = 0, draft = 0, merged = 0} = prs || {}; return merged && !review && !approved && !draft; };
 
   // ── Send to QA ──
-  // An IMPLEMENT issue whose PRs are all merged gets a SEND TO QA button: Jira
-  // moves it to Quality Assurance and unassigns it (/api/send-to-qa). For the
+  // An IMPLEMENT issue whose PRs are all merged, and whose subtasks are all
+  // resolved (Jira's done category), gets a SEND TO QA button: Jira moves it
+  // to Quality Assurance and unassigns it (/api/send-to-qa). For the
   // move, a leaving copy (qaMove.ghost) holds its place in IMPLEMENT and fades
   // out while the real card fades in under QA.
   // data/jira.json keeps the issue in IMPLEMENT until poll.sh fetches Jira
@@ -1592,7 +1593,7 @@
           ${issue.in_current_sprint === false && ['OPEN','REOPENED','IMPLEMENT'].includes(issue.status) ? '<span class="no-sprint-badge">NOT IN SPRINT!</span>' : ''}
           ${activityBadges(issue)}
           ${pastImplement ? '' : prBadge(issue.prs)}
-          ${issue.status === 'IMPLEMENT' && allMerged(issue.prs) ? `<button class="qa-btn" title="Move to Quality Assurance and unassign" onclick="sendToQa('${esc(issue.key)}', this)">SEND TO QA</button>` : ''}
+          ${issue.status === 'IMPLEMENT' && allMerged(issue.prs) && !issue.open_subtasks?.length ? `<button class="qa-btn" title="Move to Quality Assurance and unassign" onclick="sendToQa('${esc(issue.key)}', this)">SEND TO QA</button>` : ''}
           ${issue.status === 'QUALITY ASSURANCE' ? (issue.assignee
             ? `<span class="parent-ref-badge" title="Assignee: ${esc(issue.assignee)}">${esc(issue.assignee.split(' ')[0])}</span>`
             : '<span class="parent-ref-badge">Waiting</span>') : ''}
